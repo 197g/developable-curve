@@ -7,3 +7,8 @@ dc-integral = { path = "lib/integral" }
 
 glam = "0.32"
 gauss-quad = "0.2.4"
+
+# Only runge kutta 4th order but little dependencies
+fast_ode = { version = "1", path = "vendor/fast_ode" }
+# Another ode solver, with more features and dependencies
+ode_solvers = "0.6.1"

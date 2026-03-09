@@ -1,7 +1,19 @@
 use glam::Vec3;
 
+mod curves;
+
+pub use curves::{
+    Curve,
+    Circle,
+    HermiteSpline,
+};
+
 /// A *non*-normalized frame. Pretty much none of our definitions care about it.
 pub struct DenormalTangentFrame {
+    /// The point on the curve.
+    pub base: Vec3,
+    /// The tangent `f(t)'`. Note we do not support unit speed curves. This can have any (non-zero)
+    /// length.
     pub tangent: Vec3,
     /// Derivative of the tangent. Also called `normal` if `tangent` is constant unit length and
     /// curve is unit speed.

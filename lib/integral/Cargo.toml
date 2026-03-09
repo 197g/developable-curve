@@ -5,4 +5,5 @@ edition = "2024"
 
 [dependencies]
 glam.workspace = true
-gauss-quad.workspace = true
+# gauss-quad.workspace = true
+fast_ode.workspace = true
