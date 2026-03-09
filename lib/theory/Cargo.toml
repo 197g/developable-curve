@@ -1,5 +1,5 @@
 [package]
-name = "theory"
+name = "dc-theory"
 version = "0.0.0"
 edition = "2024"
 
