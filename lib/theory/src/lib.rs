@@ -2,11 +2,7 @@ use glam::Vec3;
 
 mod curves;
 
-pub use curves::{
-    Curve,
-    Circle,
-    HermiteSpline,
-};
+pub use curves::{Circle, Curve, HermiteSpline};
 
 /// A *non*-normalized frame. Pretty much none of our definitions care about it.
 pub struct DenormalTangentFrame {
@@ -27,6 +23,14 @@ pub struct SurfaceNormal {
     pub normal: Vec3,
 }
 
+impl SurfaceNormal {
+    pub fn from_array(arr: [f32; 3]) -> Self {
+        Self {
+            normal: Vec3::from_array(arr),
+        }
+    }
+}
+
 pub struct SurfaceDevelopment {
     pub normal: Vec3,
     /// A point fulfilling the constraints with the tangent frame to remain orthogonal to the
@@ -38,6 +42,18 @@ pub struct SurfaceDevelopment {
 }
 
 impl SurfaceDevelopment {
+    pub fn ode_integrator(
+        curve: impl Curve,
+        parameter: impl Fn(f32) -> f32,
+    ) -> impl Fn(Vec3, f32) -> Vec3 {
+        move |normal: Vec3, t: f32| {
+            let frame = curve.at(t);
+            let dev = SurfaceDevelopment::from_frame_and_normal(&frame, SurfaceNormal { normal });
+            let lambda = parameter(t);
+            dev.derivative_base + lambda * dev.derivative_free
+        }
+    }
+
     /// Assume frame and normal describe the line x×[0; inf) of the developable surface.
     ///
     /// Choose a derivative of the plane normal at that point such that the surface is developable.
@@ -50,7 +66,10 @@ impl SurfaceDevelopment {
     /// loophole from the theory.
     ///
     /// Also note I did not say anything about Darboux frames. They are a special case here.
-    pub fn from_frame_and_normal(frame: &DenormalTangentFrame, SurfaceNormal { normal }: SurfaceNormal) -> Self {
+    pub fn from_frame_and_normal(
+        frame: &DenormalTangentFrame,
+        SurfaceNormal { normal }: SurfaceNormal,
+    ) -> Self {
         // The constraints on the derivative are as follows:
         // 1. The surface normal has constant length.
         // 2. Surface must remain orthogonal to the first surface direction u, the tangent.

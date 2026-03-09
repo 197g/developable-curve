@@ -1,8 +1,9 @@
 [workspace]
-members = ["lib/integral","lib/theory"]
+members = ["bin/example","lib/integral","lib/theory"]
 resolver = "3"
 
 [workspace.dependencies]
+dc-theory = { path = "lib/theory" }
 dc-integral = { path = "lib/integral" }
 
 glam = "0.32"

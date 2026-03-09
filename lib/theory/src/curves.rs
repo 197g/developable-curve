@@ -3,10 +3,14 @@ use glam::Vec3;
 
 pub trait Curve {
     fn at(&self, t: f32) -> DenormalTangentFrame;
+
+    fn sample_at(&self, ts: &[f32]) -> Vec<DenormalTangentFrame> {
+        ts.iter().map(|&t| self.at(t)).collect()
+    }
 }
 
 pub struct Circle {
-    radius: f32,
+    pub radius: f32,
 }
 
 impl Curve for Circle {
@@ -27,7 +31,7 @@ impl Curve for Circle {
 
 pub struct HermiteSpline<const N: usize> {
     /// The points the curve should pass through.
-    points: [Vec3; N],
+    pub points: [Vec3; N],
 }
 
 impl Curve for HermiteSpline<2> {
@@ -85,8 +89,7 @@ impl Curve for HermiteSpline<4> {
         let tangent = (p1 - p0) * 3.0 * (1.0 - t).powi(2)
             + (p2 - p1) * 6.0 * (1.0 - t) * t
             + (p3 - p2) * 3.0 * t.powi(2);
-        let derivative = (p2 - 2.0 * p1 + p0) * 6.0 * (1.0 - t)
-            + (p3 - 2.0 * p2 + p1) * 6.0 * t;
+        let derivative = (p2 - 2.0 * p1 + p0) * 6.0 * (1.0 - t) + (p3 - 2.0 * p2 + p1) * 6.0 * t;
 
         // At first gpt-41 said this was `0`, but that is only the case for `t=0` and `t=1`. The
         // binormal is the derivative of the derivative, which is a constant in this case.
@@ -99,5 +102,11 @@ impl Curve for HermiteSpline<4> {
             derivative,
             binormal,
         }
+    }
+}
+
+impl<T: Curve + ?Sized> Curve for &'_ T {
+    fn at(&self, t: f32) -> DenormalTangentFrame {
+        (**self).at(t)
     }
 }
