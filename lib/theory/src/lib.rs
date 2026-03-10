@@ -26,7 +26,7 @@ pub struct SurfaceNormal {
 impl SurfaceNormal {
     pub fn from_array(arr: [f32; 3]) -> Self {
         Self {
-            normal: Vec3::from_array(arr),
+            normal: Vec3::from_array(arr).normalize(),
         }
     }
 }

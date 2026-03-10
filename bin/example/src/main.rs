@@ -1,6 +1,6 @@
 mod svg;
 
-use dc_integral::{CurveDescription, CurveSegment, curve_ode, curve_ode_with_curvature};
+use dc_integral::{CurveDescription, CurveSegment, curve_ode_with_curvature};
 use dc_theory::{Curve, DenormalTangentFrame, SurfaceDevelopment, SurfaceNormal};
 
 fn run_surface_along(
@@ -121,6 +121,42 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
         let svg = crate::svg::to_svg(&surface)?;
         std::fs::write("/tmp/template-neat.svg", &svg)?;
+    }
+
+    {
+        // Something even more interesting.
+        println!("\n\n");
+
+        let ts = (0..=100).map(|i| i as f32 / 100.0).collect::<Vec<_>>();
+
+        let var = (0..=100)
+            .map(|i| (1.0 * core::f32::consts::PI * i as f32 / 100.0).sin() * 8.)
+            .collect::<Vec<_>>();
+
+        let c = 4.;
+        let h = 2.;
+        let curve = dc_theory::HermiteSpline::<4> {
+            points: [
+                glam::Vec3::from_array([c, c, -h]),
+                glam::Vec3::from_array([-c, c, h]),
+                glam::Vec3::from_array([-c, -c, -h]),
+                glam::Vec3::from_array([c, -c, h]),
+            ],
+        };
+
+        // The tangent here is [-2c, 0, 2h], it must be orthogonal to that.
+        let initial = SurfaceNormal::from_array([0.5*h, 1.0, 0.5*c]);
+        let surface = run_surface_along(&curve, &ts, &var, initial);
+
+        for (frame, segment) in &surface {
+            println!(
+                "base: {:.4?}, tangent: {:.4?}, normal: {:.4?}, flat: {:.4?}",
+                frame.base, frame.tangent, segment.normal, segment.flat_position,
+            );
+        }
+
+        let svg = crate::svg::to_svg(&surface)?;
+        std::fs::write("/tmp/template-woah.svg", &svg)?;
     }
 
     Ok(())

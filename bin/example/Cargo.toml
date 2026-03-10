@@ -4,5 +4,6 @@ version = "0.0.0"
 edition = "2024"
 
 [dependencies]
+glam.workspace = true
 dc-theory.workspace = true
 dc-integral.workspace = true
