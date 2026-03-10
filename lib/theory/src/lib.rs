@@ -39,10 +39,12 @@ pub struct SurfaceDevelopment {
     /// Derivative is free along a line normal to the normal. Add any multiple of this to the base
     /// and you get a valid derivative.
     pub derivative_free: Vec3,
+    /// The curvature at the surface, not of the curve.
+    pub surface_curvature: f32,
 }
 
 impl SurfaceDevelopment {
-    pub fn ode_integrator(
+    pub fn normal_ode(
         curve: impl Curve,
         parameter: impl Fn(f32) -> f32,
     ) -> impl Fn(Vec3, f32) -> Vec3 {
@@ -51,6 +53,20 @@ impl SurfaceDevelopment {
             let dev = SurfaceDevelopment::from_frame_and_normal(&frame, SurfaceNormal { normal });
             let lambda = parameter(t);
             dev.derivative_base + lambda * dev.derivative_free
+        }
+    }
+
+    pub fn normal_and_flat_ode(
+        curve: impl Curve,
+        parameter: impl Fn(f32) -> f32,
+    ) -> impl Fn(Vec3, f32) -> (Vec3, f32, f32) {
+        move |normal: Vec3, t: f32| {
+            let frame = curve.at(t);
+            let dev = SurfaceDevelopment::from_frame_and_normal(&frame, SurfaceNormal { normal });
+            let lambda = parameter(t);
+            let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
+            let speed = frame.tangent.length();
+            (dt_normal, dev.surface_curvature, speed)
         }
     }
 
@@ -105,10 +121,43 @@ impl SurfaceDevelopment {
 
         let base = offset / frame.tangent.length_squared() * frame.tangent;
 
+        // Projected curvature is derived from projected curve normal. We can recover the
+        // derivative of the othonormal frame of the curve first:
+        //
+        //     with l(x) = |frame.tangent| = <frame.tangent, frame.tangent>^(1/2) and l' = dl/dt,
+        //
+        //     frame.derivative = l · frame.normal + l' frame.tangent / l
+        //     <frame.tangent, frame.derivative> = l' / l <frame.tangent, frame.tangent> = l' · l
+        //
+        //     frame.derivative = l · frame.normal + (<frame.tangent, frame.derivative> / l) · frame.tangent / l
+        //     frame.derivative = l · frame.normal + (<frame.tangent, frame.derivative> / l²) · frame.tangent
+        //     l · frame.normal = frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent
+        //
+        // What we're interested in is the length of the curve normal vector projected onto the
+        // plane (given by its normal). That projection is of the form `T + o · normal` where `o`
+        // is `-<normal, T>`. We borrow a trick from curvature. A cross product preserves the
+        // lengths for orthogonal vectors: ||A|| = ||A×B|| / ||B||. And we can compute the cross
+        // product without doing the projection itself since B×B = 0. Since our plane normal has
+        // unit length we may as well be computing
+        //
+        //     ||frame.normal × normal|| = || l · frame.normal × normal || / l
+        //     = || frame.derivative × normal - (<frame.tangent, frame.derivative> / l²) · frame.tangent × normal || / l
+        //     = || frame.derivative × normal || / l
+        //
+        // which is so absurdly clean I'm not even sure it is correct. Just one more division by
+        // `l` to correct for the non-unit speed of the curve—which makes this even cleaner. WTF.
+        //
+        // `kappa = (dt frame.tangent×normal) / <frame.tangent, frame.tangent>`.
+        //
+        //     GPT-4.1 almost oneshot this (without the above derivation) but used a dot instead of
+        //     cross product. It did not oneshot the explanation at all.
+        let kappa = normal.cross(frame.derivative).length() / frame.tangent.length_squared();
+
         Self {
             normal,
             derivative_base: base,
             derivative_free: dir,
+            surface_curvature: kappa,
         }
     }
 }
