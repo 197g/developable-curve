@@ -40,20 +40,24 @@ pub fn curve_ode(
     Vec3::from_array(x1.0.map(|v| v as f32))
 }
 
+#[derive(Clone, Copy)]
 pub struct CurveDescription {
     pub dt_normal: Vec3,
     pub curvature: f32,
     pub speed: f32,
 }
 
+#[derive(Clone, Copy)]
 pub struct CurveSegment {
     pub normal: Vec3,
-    pub flat: Vec2,
+    pub flat_position: Vec2,
+    pub flat_direction: f32,
 }
 
 pub fn curve_ode_with_curvature(
     tangent: impl Fn(Vec3, f32) -> CurveDescription,
     base: Vec3,
+    flat_base: (Vec2, f32),
     (start, end): (f32, f32),
 ) -> CurveSegment {
     struct Ode<F: Fn(Vec3, f32) -> CurveDescription>(F);
@@ -73,15 +77,16 @@ pub fn curve_ode_with_curvature(
 
             // k describes the current heading.
             let (mx, my) = k.sin_cos();
-            let coords = [x, y, z, mx * speed, my * speed, dkds];
+            let dt = [x, y, z, mx * speed, my * speed, dkds];
 
-            (Coord(coords), true)
+            (Coord(dt), true)
         }
     }
 
     let x0 = Coord::<6>({
         let [x, y, z] = base.to_array().map(f64::from);
-        [x, y, z, 0.0, 0.0, 0.0]
+        let [cx, cy] = flat_base.0.to_array().map(f64::from);
+        [x, y, z, cx, cy, f64::from(flat_base.1)]
     });
 
     let sol = fast_ode::solve_ivp(
@@ -103,10 +108,12 @@ pub fn curve_ode_with_curvature(
         }
     };
 
-    let Coord([x, y, z, fx, fy, _]) = x1;
+    let Coord([x, y, z, fx, fy, k]) = x1;
 
     CurveSegment {
         normal: Vec3::from_array([x, y, z].map(|v| v as f32)),
-        flat: Vec2::from_array([fx, fy].map(|v| v as f32)),
+        flat_position: Vec2::from_array([fx, fy].map(|v| v as f32)),
+        // We do not build a full frame..
+        flat_direction: k as f32,
     }
 }

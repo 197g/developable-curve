@@ -1,3 +1,5 @@
+mod svg;
+
 use dc_integral::{CurveDescription, CurveSegment, curve_ode, curve_ode_with_curvature};
 use dc_theory::{Curve, DenormalTangentFrame, SurfaceDevelopment, SurfaceNormal};
 
@@ -19,6 +21,13 @@ fn run_surface_along(
     // now we scan and do integration steps along the way.
     assert_eq!(points.len(), var.len());
 
+    let initial = CurveSegment {
+        normal: initial.normal,
+        flat_position: Default::default(),
+        flat_direction: 0.0,
+    };
+
+    // We might like a choice here, not always calculate the flattening
     let normals: Vec<CurveSegment> = ts
         .iter()
         .zip(var)
@@ -35,18 +44,22 @@ fn run_surface_along(
                 }
             };
 
-            Some(curve_ode_with_curvature(
-                callback,
-                state.0.normal,
-                (state.1, ts),
-            ))
+            let normal_x0 = state.0.normal;
+            let flat_x0 = (state.0.flat_position, state.0.flat_direction);
+            let time_segment = (state.1, ts);
+            let endpoint = curve_ode_with_curvature(callback, normal_x0, flat_x0, time_segment);
+
+            state.0 = endpoint;
+            state.1 = ts;
+
+            Some(endpoint)
         })
         .collect();
 
     points.into_iter().zip(normals).collect()
 }
 
-fn main() {
+fn main() -> Result<(), Box<dyn core::error::Error>> {
     let curve = dc_theory::Circle { radius: 1.0 };
     let ts = (0..=100)
         .map(|i| 2.0 * core::f32::consts::PI * i as f32 / 100.0)
@@ -59,12 +72,15 @@ fn main() {
         let initial = SurfaceNormal::from_array([1.0, 0.0, 0.0]);
         let surface = run_surface_along(&curve, &ts, &var, initial);
 
-        for (frame, segment) in surface {
+        for (frame, segment) in &surface {
             println!(
                 "base: {:.4?}, tangent: {:.4?}, normal: {:.4?}, flat: {:.4?}",
-                frame.base, frame.tangent, segment.normal, segment.flat,
+                frame.base, frame.tangent, segment.normal, segment.flat_position,
             );
         }
+
+        let svg = crate::svg::to_svg(&surface)?;
+        std::fs::write("/tmp/template-cylinder.svg", &svg)?;
     }
 
     {
@@ -75,29 +91,37 @@ fn main() {
         let initial = SurfaceNormal::from_array([0.96, 0.0, 0.2]);
         let surface = run_surface_along(&curve, &ts, &var, initial);
 
-        for (frame, segment) in surface {
+        for (frame, segment) in &surface {
             println!(
                 "base: {:.4?}, tangent: {:.4?}, normal: {:.4?}, flat: {:.4?}",
-                frame.base, frame.tangent, segment.normal, segment.flat,
+                frame.base, frame.tangent, segment.normal, segment.flat_position,
             );
         }
+
+        let svg = crate::svg::to_svg(&surface)?;
+        std::fs::write("/tmp/template-cone.svg", &svg)?;
     }
 
     {
         // Something more interesting.
         println!("\n\n");
         let var = (0..=100)
-            .map(|i| (2.0 * core::f32::consts::PI * i as f32 / 100.0).sin() * 0.1)
+            .map(|i| (2.0 * core::f32::consts::PI * i as f32 / 100.0).sin() * 0.3)
             .collect::<Vec<_>>();
 
         let initial = SurfaceNormal::from_array([0.96, 0.0, 0.2]);
         let surface = run_surface_along(&curve, &ts, &var, initial);
 
-        for (frame, segment) in surface {
+        for (frame, segment) in &surface {
             println!(
                 "base: {:.4?}, tangent: {:.4?}, normal: {:.4?}, flat: {:.4?}",
-                frame.base, frame.tangent, segment.normal, segment.flat
+                frame.base, frame.tangent, segment.normal, segment.flat_position,
             );
         }
+
+        let svg = crate::svg::to_svg(&surface)?;
+        std::fs::write("/tmp/template-neat.svg", &svg)?;
     }
+
+    Ok(())
 }
