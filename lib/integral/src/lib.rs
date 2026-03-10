@@ -76,7 +76,7 @@ pub fn curve_ode_with_curvature(
             let dkds = f64::from(descriptor.curvature) * speed;
 
             // k describes the current heading.
-            let (mx, my) = k.sin_cos();
+            let (my, mx) = k.sin_cos();
             let dt = [x, y, z, mx * speed, my * speed, dkds];
 
             (Coord(dt), true)

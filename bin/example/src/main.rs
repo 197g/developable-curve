@@ -106,7 +106,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         // Something more interesting.
         println!("\n\n");
         let var = (0..=100)
-            .map(|i| (2.0 * core::f32::consts::PI * i as f32 / 100.0).sin() * 0.3)
+            .map(|i| (4.0 * core::f32::consts::PI * i as f32 / 100.0).sin() * 0.3)
             .collect::<Vec<_>>();
 
         let initial = SurfaceNormal::from_array([0.96, 0.0, 0.2]);

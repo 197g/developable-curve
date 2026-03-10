@@ -152,12 +152,13 @@ impl SurfaceDevelopment {
         //     GPT-4.1 almost oneshot this (without the above derivation) but used a dot instead of
         //     cross product. It did not oneshot the explanation at all.
         let kappa = normal.cross(frame.derivative).length() / frame.tangent.length_squared();
+        let sign_of_curve = frame.tangent.cross(frame.derivative).dot(normal).signum();
 
         Self {
             normal,
             derivative_base: base,
             derivative_free: dir,
-            surface_curvature: kappa,
+            surface_curvature: kappa * sign_of_curve,
         }
     }
 }
