@@ -5,6 +5,7 @@ mod curves;
 pub use curves::{Circle, Curve, HermiteSpline};
 
 /// A *non*-normalized frame. Pretty much none of our definitions care about it.
+#[derive(Clone, Copy)]
 pub struct DenormalTangentFrame {
     /// The point on the curve.
     pub base: Vec3,
@@ -32,6 +33,7 @@ impl SurfaceNormal {
 }
 
 pub struct SurfaceDevelopment {
+    pub frame: DenormalTangentFrame,
     pub normal: Vec3,
     /// A point fulfilling the constraints with the tangent frame to remain orthogonal to the
     /// tangent.
@@ -41,6 +43,9 @@ pub struct SurfaceDevelopment {
     pub derivative_free: Vec3,
     /// The curvature at the surface, not of the curve.
     pub surface_curvature: f32,
+    /// What direction is the basic frame oriented? We want to stay on a consistent size even if
+    /// the direction of the curvature flips.
+    pub signum: f32,
 }
 
 impl SurfaceDevelopment {
@@ -50,7 +55,7 @@ impl SurfaceDevelopment {
     ) -> impl Fn(Vec3, f32) -> Vec3 {
         move |normal: Vec3, t: f32| {
             let frame = curve.at(t);
-            let dev = SurfaceDevelopment::from_frame_and_normal(&frame, SurfaceNormal { normal });
+            let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
             let lambda = parameter(t);
             dev.derivative_base + lambda * dev.derivative_free
         }
@@ -59,14 +64,14 @@ impl SurfaceDevelopment {
     pub fn normal_and_flat_ode(
         curve: impl Curve,
         parameter: impl Fn(f32) -> f32,
-    ) -> impl Fn(Vec3, f32) -> (Vec3, f32, f32) {
+    ) -> impl Fn(Vec3, f32) -> (DenormalTangentFrame, Vec3, f32, f32) {
         move |normal: Vec3, t: f32| {
             let frame = curve.at(t);
-            let dev = SurfaceDevelopment::from_frame_and_normal(&frame, SurfaceNormal { normal });
+            let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
             let lambda = parameter(t);
             let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
             let speed = frame.tangent.length();
-            (dt_normal, dev.surface_curvature, speed)
+            (dev.frame, dt_normal, dev.surface_curvature, speed)
         }
     }
 
@@ -83,7 +88,7 @@ impl SurfaceDevelopment {
     ///
     /// Also note I did not say anything about Darboux frames. They are a special case here.
     pub fn from_frame_and_normal(
-        frame: &DenormalTangentFrame,
+        frame: DenormalTangentFrame,
         SurfaceNormal { normal }: SurfaceNormal,
     ) -> Self {
         // The constraints on the derivative are as follows:
@@ -155,10 +160,12 @@ impl SurfaceDevelopment {
         let sign_of_curve = frame.tangent.cross(frame.derivative).dot(normal).signum();
 
         Self {
+            frame,
             normal,
             derivative_base: base,
             derivative_free: dir,
             surface_curvature: kappa * sign_of_curve,
+            signum: sign_of_curve,
         }
     }
 }

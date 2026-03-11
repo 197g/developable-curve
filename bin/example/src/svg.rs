@@ -55,8 +55,10 @@ pub fn to_svg(
             let [x, y] = segment.flat_position.to_array();
             let [x, y] = [x, y].map(|x| x * scale);
             let (dir_y, dir_x) = segment.flat_direction.sin_cos();
+            let angle_rotation = glam::Vec2::from_angle(segment.angle * std::f32::consts::PI);
+            let [dir_x, dir_y] = angle_rotation.rotate(glam::Vec2::new(dir_x, dir_y)).to_array();
             let [dx, dy] = [dir_x, dir_y].map(|x| x * scale);
-            let [dx, dy] = [-dy, dx];
+            // let [dx, dy] = [-dy, dx];
 
             writeln!(
                 &mut string,

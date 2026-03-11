@@ -42,6 +42,7 @@ pub fn curve_ode(
 
 #[derive(Clone, Copy)]
 pub struct CurveDescription {
+    pub tangent: Vec3,
     pub dt_normal: Vec3,
     pub curvature: f32,
     pub speed: f32,
@@ -50,8 +51,10 @@ pub struct CurveDescription {
 #[derive(Clone, Copy)]
 pub struct CurveSegment {
     pub normal: Vec3,
+    pub horizontal: Vec3,
     pub flat_position: Vec2,
     pub flat_direction: f32,
+    pub angle: f32,
 }
 
 pub fn curve_ode_with_curvature(
@@ -89,8 +92,10 @@ pub fn curve_ode_with_curvature(
         [x, y, z, cx, cy, f64::from(flat_base.1)]
     });
 
+    let ode = Ode(tangent);
+
     let sol = fast_ode::solve_ivp(
-        &Ode(tangent),
+        &ode,
         (f64::from(start), f64::from(end)),
         x0,
         |_, _| true,
@@ -109,11 +114,47 @@ pub fn curve_ode_with_curvature(
     };
 
     let Coord([x, y, z, fx, fy, k]) = x1;
+    let normal = Vec3::from_array([x, y, z].map(|v| v as f32));
+
+    // The horizontal must be perpendicular to the plane normal and its derivative.
+    // We are however free to choose a direction, let us pick a consistent one.
+    let end_descriptor = (ode.0)(normal, end);
+    let horizontal = end_descriptor.dt_normal.cross(normal);
+
+    // There is probably a cheaper way to get this, do not pass the whole frame. Or do we?
+    let signum = horizontal
+        .cross(end_descriptor.tangent)
+        .dot(normal)
+        .signum();
+
+    // Note: `<horizontal, frame.tangent> = v · ||frame.tangent||`
+    //
+    // if you want to control this angle. Expanded:
+    //
+    // cos(horizontal, frame.tangent) · ||horizontal|| · ||frame.tangent||
+    //     = <horizontal, frame.tangent>
+    //     = v · ||frame.tangent||
+    //
+    // v = cos(horizontal, frame.tangent) · ||horizontal||
+    //     = cos(horizontal, frame.tangent) · ||dt normal||
+    //
+    // So `v = 0` for a guaranteed tangent-perpendicular horizontal line.
+
+    // I would prefer an acos2 with semantics
+    //     (cos(a)·||A||·||B||, ||A||·||B||) -> arccos(a)
+    // but this is good enough for now.
+    let angle = horizontal.angle_between(end_descriptor.tangent) * signum / std::f32::consts::PI;
+
+    // Make this the right-hand coordinate system instead (tangent, horizontal, normal). This makes
+    // it compatible with the curvature calculation.
+    let horizontal = horizontal * signum;
 
     CurveSegment {
-        normal: Vec3::from_array([x, y, z].map(|v| v as f32)),
+        normal,
+        horizontal,
         flat_position: Vec2::from_array([fx, fy].map(|v| v as f32)),
         // We do not build a full frame..
         flat_direction: k as f32,
+        angle,
     }
 }

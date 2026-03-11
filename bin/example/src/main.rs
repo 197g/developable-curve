@@ -1,3 +1,4 @@
+mod obj;
 mod svg;
 
 use dc_integral::{CurveDescription, CurveSegment, curve_ode_with_curvature};
@@ -21,10 +22,14 @@ fn run_surface_along(
     // now we scan and do integration steps along the way.
     assert_eq!(points.len(), var.len());
 
+    // FIXME: this should be done internally because `horizontal` is calculated by the derivative
+    // of the normal of the segment, so this should involve the parameter choice `v`.
     let initial = CurveSegment {
         normal: initial.normal,
+        horizontal: Default::default(),
         flat_position: Default::default(),
         flat_direction: 0.0,
+        angle: 0.0,
     };
 
     // We might like a choice here, not always calculate the flattening
@@ -35,9 +40,10 @@ fn run_surface_along(
             let ode_base = SurfaceDevelopment::normal_and_flat_ode(curve, |_| v);
 
             let callback = move |pos, t| {
-                let (dt_normal, curvature, speed) = ode_base(pos, t);
+                let (frame, dt_normal, curvature, speed) = ode_base(pos, t);
 
                 CurveDescription {
+                    tangent: frame.tangent,
                     dt_normal,
                     curvature,
                     speed,
@@ -47,6 +53,7 @@ fn run_surface_along(
             let normal_x0 = state.0.normal;
             let flat_x0 = (state.0.flat_position, state.0.flat_direction);
             let time_segment = (state.1, ts);
+
             let endpoint = curve_ode_with_curvature(callback, normal_x0, flat_x0, time_segment);
 
             state.0 = endpoint;
@@ -81,6 +88,9 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
         let svg = crate::svg::to_svg(&surface)?;
         std::fs::write("/tmp/template-cylinder.svg", &svg)?;
+
+        let obj = crate::obj::to_obj(&surface)?;
+        std::fs::write("/tmp/template-cylinder.obj", &obj)?;
     }
 
     {
@@ -100,6 +110,9 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
         let svg = crate::svg::to_svg(&surface)?;
         std::fs::write("/tmp/template-cone.svg", &svg)?;
+
+        let obj = crate::obj::to_obj(&surface)?;
+        std::fs::write("/tmp/template-cone.obj", &obj)?;
     }
 
     {
@@ -121,6 +134,9 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
         let svg = crate::svg::to_svg(&surface)?;
         std::fs::write("/tmp/template-neat.svg", &svg)?;
+
+        let obj = crate::obj::to_obj(&surface)?;
+        std::fs::write("/tmp/template-neat.obj", &obj)?;
     }
 
     {
@@ -130,7 +146,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         let ts = (0..=100).map(|i| i as f32 / 100.0).collect::<Vec<_>>();
 
         let var = (0..=100)
-            .map(|i| (1.0 * core::f32::consts::PI * i as f32 / 100.0).sin() * 8.)
+            .map(|i| (2.0 * core::f32::consts::PI * i as f32 / 100.0).sin() * 0.5)
             .collect::<Vec<_>>();
 
         let c = 4.;
@@ -145,7 +161,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         };
 
         // The tangent here is [-2c, 0, 2h], it must be orthogonal to that.
-        let initial = SurfaceNormal::from_array([0.5*h, 1.0, 0.5*c]);
+        let initial = SurfaceNormal::from_array([0.5 * h, 4.0, 0.5 * c]);
         let surface = run_surface_along(&curve, &ts, &var, initial);
 
         for (frame, segment) in &surface {
@@ -157,6 +173,9 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
         let svg = crate::svg::to_svg(&surface)?;
         std::fs::write("/tmp/template-woah.svg", &svg)?;
+
+        let obj = crate::obj::to_obj(&surface)?;
+        std::fs::write("/tmp/template-woah.obj", &obj)?;
     }
 
     Ok(())
