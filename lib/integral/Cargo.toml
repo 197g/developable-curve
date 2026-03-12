@@ -4,6 +4,6 @@ version = "0.0.0"
 edition = "2024"
 
 [dependencies]
+dc-theory.workspace = true
 glam.workspace = true
-# gauss-quad.workspace = true
 fast_ode.workspace = true

@@ -1,9 +1,5 @@
 use glam::Vec3;
 
-mod curves;
-
-pub use curves::{Circle, Curve, HermiteSpline};
-
 /// A *non*-normalized frame. Pretty much none of our definitions care about it.
 #[derive(Clone, Copy)]
 pub struct DenormalTangentFrame {
@@ -48,58 +44,15 @@ pub struct SurfaceDevelopment {
     pub signum: f32,
 }
 
+#[derive(Clone, Copy)]
+pub struct CurveDescription {
+    pub tangent: Vec3,
+    pub dt_normal: Vec3,
+    pub curvature: f32,
+    pub speed: f32,
+}
+
 impl SurfaceDevelopment {
-    pub fn normal_ode(
-        curve: impl Curve,
-        parameter: impl Fn(f32) -> f32,
-    ) -> impl Fn(Vec3, f32) -> Vec3 {
-        move |normal: Vec3, t: f32| {
-            let frame = curve.at(t);
-            let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
-            let lambda = parameter(t);
-            dev.derivative_base + lambda * dev.derivative_free
-        }
-    }
-
-    pub fn normal_and_flat_ode(
-        curve: impl Curve,
-        parameter: impl Fn(f32) -> f32,
-    ) -> impl Fn(Vec3, f32) -> (DenormalTangentFrame, Vec3, f32, f32) {
-        move |normal: Vec3, t: f32| {
-            let frame = curve.at(t);
-            let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
-            let lambda = parameter(t);
-            let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
-            let speed = frame.tangent.length();
-            (dev.frame, dt_normal, dev.surface_curvature, speed)
-        }
-    }
-
-    /// Steer the surface and horizontal direction by defining an angle between the tangent and
-    /// horizontal direction along the curve.
-    pub fn normal_and_angle_ode(
-        curve: impl Curve,
-        parameter: impl Fn(f32) -> f32,
-    ) -> impl Fn(Vec3, f32) -> (DenormalTangentFrame, Vec3, f32, f32) {
-        move |normal: Vec3, t: f32| {
-            let frame = curve.at(t);
-            let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
-            let target_angle = parameter(t);
-            // angle(horizontal, frame.tangent) = atan2(<normal, frame.derivative>, lambda)
-            //
-            // See `dc-integral/src/lib.rs` for the derivation of this formula where lambda is the
-            // parameter from the above formula. Now let's derive that lambda. Note how we
-            // automatically get `lambda = 0` at the direction discontinuity.
-            let lambda = target_angle.tan() * dev.normal.dot(frame.derivative);
-            // ^ LLM anecdote: this was oneshot before the derivation. It badly fumbled the
-            // derivation itself though, forgetting the square root in the identity or forgetting
-            // that subtract `1` changes the numerator..
-            let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
-            let speed = frame.tangent.length();
-            (dev.frame, dt_normal, dev.surface_curvature, speed)
-        }
-    }
-
     /// Assume frame and normal describe the line x×[0; inf) of the developable surface.
     ///
     /// Choose a derivative of the plane normal at that point such that the surface is developable.

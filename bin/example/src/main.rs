@@ -1,8 +1,8 @@
 mod obj;
 mod svg;
 
-use dc_integral::{CurveDescription, CurveSegment, curve_ode_with_curvature};
-use dc_theory::{Curve, DenormalTangentFrame, SurfaceDevelopment, SurfaceNormal};
+use dc_curves::{Curve, DenormalTangentFrame, SurfaceNormal, normal_and_flat_ode};
+use dc_integral::{CurveSegment, curve_ode_with_curvature};
 
 fn run_surface_along(
     curve: &(dyn Curve + '_),
@@ -37,24 +37,13 @@ fn run_surface_along(
         .iter()
         .zip(var)
         .scan((initial, 0.0), |state, (&ts, &v)| {
-            let ode_base = SurfaceDevelopment::normal_and_flat_ode(curve, |_| v);
-
-            let callback = move |pos, t| {
-                let (frame, dt_normal, curvature, speed) = ode_base(pos, t);
-
-                CurveDescription {
-                    tangent: frame.tangent,
-                    dt_normal,
-                    curvature,
-                    speed,
-                }
-            };
+            let ode_base = normal_and_flat_ode(curve, |_| v);
 
             let normal_x0 = state.0.normal;
             let flat_x0 = (state.0.flat_position, state.0.flat_direction);
             let time_segment = (state.1, ts);
 
-            let endpoint = curve_ode_with_curvature(callback, normal_x0, flat_x0, time_segment);
+            let endpoint = curve_ode_with_curvature(ode_base, normal_x0, flat_x0, time_segment);
 
             state.0 = endpoint;
             state.1 = ts;
@@ -67,7 +56,7 @@ fn run_surface_along(
 }
 
 fn main() -> Result<(), Box<dyn core::error::Error>> {
-    let curve = dc_theory::Circle { radius: 1.0 };
+    let curve = dc_curves::Circle { radius: 1.0 };
     let ts = (0..=100)
         .map(|i| 2.0 * core::f32::consts::PI * i as f32 / 100.0)
         .collect::<Vec<_>>();
@@ -154,7 +143,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
         let c = 4.;
         let h = 2.;
-        let curve = dc_theory::HermiteSpline::<4> {
+        let curve = dc_curves::HermiteSpline::<4> {
             points: [
                 glam::Vec3::from_array([c, c, -h]),
                 glam::Vec3::from_array([-c, c, h]),

@@ -1,11 +1,78 @@
-use super::DenormalTangentFrame;
 use glam::Vec3;
+
+pub use dc_theory::*;
 
 pub trait Curve {
     fn at(&self, t: f32) -> DenormalTangentFrame;
 
     fn sample_at(&self, ts: &[f32]) -> Vec<DenormalTangentFrame> {
         ts.iter().map(|&t| self.at(t)).collect()
+    }
+}
+
+impl<T: Curve + ?Sized> Curve for &'_ T {
+    fn at(&self, t: f32) -> DenormalTangentFrame {
+        (**self).at(t)
+    }
+}
+
+pub fn normal_ode(curve: impl Curve, parameter: impl Fn(f32) -> f32) -> impl Fn(Vec3, f32) -> Vec3 {
+    move |normal: Vec3, t: f32| {
+        let frame = curve.at(t);
+        let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
+        let lambda = parameter(t);
+        dev.derivative_base + lambda * dev.derivative_free
+    }
+}
+
+pub fn normal_and_flat_ode(
+    curve: impl Curve,
+    parameter: impl Fn(f32) -> f32,
+) -> impl Fn(Vec3, f32) -> CurveDescription {
+    move |normal: Vec3, t: f32| {
+        let frame = curve.at(t);
+        let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
+        let lambda = parameter(t);
+        let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
+        let speed = frame.tangent.length();
+
+        CurveDescription {
+            tangent: dev.frame.tangent,
+            dt_normal,
+            curvature: dev.surface_curvature,
+            speed,
+        }
+    }
+}
+
+/// Steer the surface and horizontal direction by defining an angle between the tangent and
+/// horizontal direction along the curve.
+pub fn normal_and_angle_ode(
+    curve: impl Curve,
+    parameter: impl Fn(f32) -> f32,
+) -> impl Fn(Vec3, f32) -> CurveDescription {
+    move |normal: Vec3, t: f32| {
+        let frame = curve.at(t);
+        let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
+        let target_angle = parameter(t);
+        // angle(horizontal, frame.tangent) = atan2(<normal, frame.derivative>, lambda)
+        //
+        // See `dc-integral/src/lib.rs` for the derivation of this formula where lambda is the
+        // parameter from the above formula. Now let's derive that lambda. Note how we
+        // automatically get `lambda = 0` at the direction discontinuity.
+        let lambda = target_angle.tan() * dev.normal.dot(frame.derivative);
+        // ^ LLM anecdote: this was oneshot before the derivation. It badly fumbled the
+        // derivation itself though, forgetting the square root in the identity or forgetting
+        // that subtract `1` changes the numerator..
+        let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
+        let speed = frame.tangent.length();
+
+        CurveDescription {
+            tangent: dev.frame.tangent,
+            dt_normal,
+            curvature: dev.surface_curvature,
+            speed,
+        }
     }
 }
 
@@ -102,11 +169,5 @@ impl Curve for HermiteSpline<4> {
             derivative,
             binormal,
         }
-    }
-}
-
-impl<T: Curve + ?Sized> Curve for &'_ T {
-    fn at(&self, t: f32) -> DenormalTangentFrame {
-        (**self).at(t)
     }
 }

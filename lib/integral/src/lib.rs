@@ -1,6 +1,8 @@
 use fast_ode::Coord;
 use glam::{Vec2, Vec3};
 
+use dc_theory::CurveDescription;
+
 pub fn curve_ode(
     tangent: impl Fn(Vec3, f32) -> Vec3,
     base: Vec3,
@@ -38,14 +40,6 @@ pub fn curve_ode(
     };
 
     Vec3::from_array(x1.0.map(|v| v as f32))
-}
-
-#[derive(Clone, Copy)]
-pub struct CurveDescription {
-    pub tangent: Vec3,
-    pub dt_normal: Vec3,
-    pub curvature: f32,
-    pub speed: f32,
 }
 
 #[derive(Clone, Copy)]
