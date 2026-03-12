@@ -139,14 +139,17 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         std::fs::write("/tmp/template-neat.obj", &obj)?;
     }
 
-    {
+    for factor in [0.0, -0.3, -0.6] {
         // Something even more interesting.
         println!("\n\n");
 
         let ts = (0..=100).map(|i| i as f32 / 100.0).collect::<Vec<_>>();
 
         let var = (0..=100)
-            .map(|i| (2.0 * core::f32::consts::PI * i as f32 / 100.0).sin() * 0.5)
+            .map(|i| {
+                let rel = i as f32 / 100.0;
+                (core::f32::consts::PI * rel).sin() * factor
+            })
             .collect::<Vec<_>>();
 
         let c = 4.;
@@ -172,10 +175,11 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         }
 
         let svg = crate::svg::to_svg(&surface)?;
-        std::fs::write("/tmp/template-woah.svg", &svg)?;
+        let name_particle = format!("_{factor}").replace('.', "p");
+        std::fs::write(format!("/tmp/template-woah{name_particle}.svg"), &svg)?;
 
         let obj = crate::obj::to_obj(&surface)?;
-        std::fs::write("/tmp/template-woah.obj", &obj)?;
+        std::fs::write(format!("/tmp/template-woah{name_particle}.obj"), &obj)?;
     }
 
     Ok(())

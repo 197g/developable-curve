@@ -137,12 +137,35 @@ pub fn curve_ode_with_curvature(
     //
     // v = cos(horizontal, frame.tangent) · ||horizontal||
     //     = cos(horizontal, frame.tangent) · ||dt normal||
+    //     = cos(horizontal, frame.tangent) · sqrt(v² + <normal, frame.derivative>²)
     //
-    // So `v = 0` for a guaranteed tangent-perpendicular horizontal line.
+    // angle(horizontal, frame.tangent) = acos(v / sqrt(v² + <normal, frame.derivative>²))
+    //     = atan(<normal, frame.derivative> / v) ; by acos(x) = atan(sqrt(1-x²)/x)
+    //     = atan2(<normal, frame.derivative>, v)
+    //
+    // So we have a discontinuity. If the normal is perpendicular to `frame.derivative` then the
+    // `cos(angle) = +1/-1` so the two are parallel with no steering at all. Otherwise, we can
+    // choose `v = 0` for a guaranteed tangent-perpendicular horizontal line or any other
+    // non-parallel angle with appropriate `v`.
+    //
+    // So now you're asking, can we control `v` so that the discontinuity never occurs? Not in
+    // general if the frame.derivative is discontinuous. But also consider this an artifact of our
+    // choice of horizontal, the direction of which is discontinuous at the zero of `dt_normal`.
+    // And indeed at the same point we get a length of `0|v=0`. So really we should maybe instead
+    // be steering by the angle; and then calculating a corresponding `v` while having `v=0` and
+    // using our angle regardless at the discontinuity?
 
     // I would prefer an acos2 with semantics
     //     (cos(a)·||A||·||B||, ||A||·||B||) -> arccos(a)
-    // but this is good enough for now.
+    // but this is good enough for now–we get to manually do the atan transform and it works out
+    // cleaner.
+    //
+    // FIXME: if we were handed `derivative_free` we could avoid this angle calculation and
+    // probably the signum itself, too. We could calculate `v` and the rest of this would fall out
+    // from atan2. But also if we were handed the angle then we could avoid the ill-defined
+    // calculation for that point entirely. Maybe having the angle as a parameter to the ODE is
+    // better after all and calculate horizontal as rotateAround(normal, angle).rotate(tangent)
+    // which I assume should itself simplify (TBD).
     let angle = horizontal.angle_between(end_descriptor.tangent) * signum / std::f32::consts::PI;
 
     // Make this the right-hand coordinate system instead (tangent, horizontal, normal). This makes
