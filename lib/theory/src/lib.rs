@@ -1,11 +1,11 @@
 use glam::Vec3;
 
 /// A *non*-normalized frame. Pretty much none of our definitions care about it.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct DenormalTangentFrame {
     /// The point on the curve.
     pub base: Vec3,
-    /// The tangent `f(t)'`. Note we do not support unit speed curves. This can have any (non-zero)
+    /// The tangent `f(t)'`. Note we do not require unit speed curves. This can have any (non-zero)
     /// length.
     pub tangent: Vec3,
     /// Derivative of the tangent. Also called `normal` if `tangent` is constant unit length and
@@ -50,6 +50,10 @@ pub struct CurveDescription {
     pub dt_normal: Vec3,
     pub curvature: f32,
     pub speed: f32,
+    /// Angle between the intended horizontal direction and the tangent. If set it must be
+    /// consistent with the `dt_normal` direction and its sign determines the orientation. Please
+    /// note that usually an angle of `+-90` is not possible.
+    pub angle: Option<f32>,
 }
 
 impl SurfaceDevelopment {

@@ -1,14 +1,22 @@
 mod obj;
 mod svg;
 
-use dc_curves::{Curve, DenormalTangentFrame, SurfaceNormal, normal_and_flat_ode};
+use dc_curves::{
+    Curve, DenormalTangentFrame, SurfaceNormal, normal_and_flat_ode, normal_and_tan_ode,
+};
 use dc_integral::{CurveSegment, curve_ode_with_curvature};
+
+enum OdeParameterization {
+    Derivative,
+    Angle,
+}
 
 fn run_surface_along(
     curve: &(dyn Curve + '_),
     ts: &[f32],
     var: &[f32],
     initial: SurfaceNormal,
+    ode: OdeParameterization,
 ) -> Vec<(DenormalTangentFrame, CurveSegment)> {
     let base = curve.at(0.0);
 
@@ -37,7 +45,17 @@ fn run_surface_along(
         .iter()
         .zip(var)
         .scan((initial, 0.0), |state, (&ts, &v)| {
-            let ode_base = normal_and_flat_ode(curve, |_| v);
+            let (tmp0, tmp1);
+            let ode_base = match ode {
+                OdeParameterization::Derivative => {
+                    tmp0 = normal_and_flat_ode(curve, |_| v);
+                    &tmp0 as &dyn Fn(glam::Vec3, f32) -> _
+                }
+                OdeParameterization::Angle => {
+                    tmp1 = normal_and_tan_ode(curve, |_| v);
+                    &tmp1
+                }
+            };
 
             let normal_x0 = state.0.normal;
             let flat_x0 = (state.0.flat_position, state.0.flat_direction);
@@ -66,7 +84,8 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         let var = (0..=100).map(|_| 0.0).collect::<Vec<_>>();
 
         let initial = SurfaceNormal::from_array([1.0, 0.0, 0.0]);
-        let surface = run_surface_along(&curve, &ts, &var, initial);
+        let surface =
+            run_surface_along(&curve, &ts, &var, initial, OdeParameterization::Derivative);
 
         for (frame, segment) in &surface {
             println!(
@@ -88,7 +107,8 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         let var = (0..=100).map(|_| 0.0).collect::<Vec<_>>();
 
         let initial = SurfaceNormal::from_array([0.96, 0.0, 0.2]);
-        let surface = run_surface_along(&curve, &ts, &var, initial);
+        let surface =
+            run_surface_along(&curve, &ts, &var, initial, OdeParameterization::Derivative);
 
         for (frame, segment) in &surface {
             println!(
@@ -108,11 +128,11 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
         // Something more interesting.
         println!("\n\n");
         let var = (0..=100)
-            .map(|i| (4.0 * core::f32::consts::PI * i as f32 / 100.0).sin() * 0.3)
+            .map(|i| (4.0 * core::f32::consts::PI * i as f32 / 100.0).sin() * 0.2)
             .collect::<Vec<_>>();
 
         let initial = SurfaceNormal::from_array([0.96, 0.0, 0.2]);
-        let surface = run_surface_along(&curve, &ts, &var, initial);
+        let surface = run_surface_along(&curve, &ts, &var, initial, OdeParameterization::Angle);
 
         for (frame, segment) in &surface {
             println!(
@@ -154,7 +174,8 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
         // The tangent here is [-2c, 0, 2h], it must be orthogonal to that.
         let initial = SurfaceNormal::from_array([0.5 * h, 4.0, 0.5 * c]);
-        let surface = run_surface_along(&curve, &ts, &var, initial);
+        let surface =
+            run_surface_along(&curve, &ts, &var, initial, OdeParameterization::Derivative);
 
         for (frame, segment) in &surface {
             println!(

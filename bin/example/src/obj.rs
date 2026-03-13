@@ -7,9 +7,7 @@ pub fn to_obj(
 
     let tangent_scale = 0.5;
     let normal_scale = 0.5;
-
-    // The svg generated of flat is for the left-side of this though it does not matter.
-    let horizontal_scale = -1.0;
+    let horizontal_scale = 1.0;
 
     const VERTICES_PER_FRAME: usize = 4;
 

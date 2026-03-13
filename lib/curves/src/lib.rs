@@ -41,30 +41,57 @@ pub fn normal_and_flat_ode(
             dt_normal,
             curvature: dev.surface_curvature,
             speed,
+            angle: None,
         }
     }
 }
 
 /// Steer the surface and horizontal direction by defining an angle between the tangent and
 /// horizontal direction along the curve.
-pub fn normal_and_angle_ode(
+pub fn normal_and_tan_ode(
     curve: impl Curve,
+    // Provides intended `angle` at a point `t` on the curve where `0` is orthogonal to the left
+    // side of the tangent in the normal plane.
     parameter: impl Fn(f32) -> f32,
 ) -> impl Fn(Vec3, f32) -> CurveDescription {
     move |normal: Vec3, t: f32| {
         let frame = curve.at(t);
         let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
-        let target_angle = parameter(t);
+
+        // Set so that 0 refers to the same side as the 0 of the other parameterization.
+        let target_angle = parameter(t) + std::f32::consts::PI * 0.5;
+
         // angle(horizontal, frame.tangent) = atan2(<normal, frame.derivative>, lambda)
         //
         // See `dc-integral/src/lib.rs` for the derivation of this formula where lambda is the
         // parameter from the above formula. Now let's derive that lambda. Note how we
-        // automatically get `lambda = 0` at the direction discontinuity.
-        let lambda = target_angle.tan() * dev.normal.dot(frame.derivative);
-        // ^ LLM anecdote: this was oneshot before the derivation. It badly fumbled the
-        // derivation itself though, forgetting the square root in the identity or forgetting
-        // that subtract `1` changes the numerator..
-        let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
+        // automatically get `lambda = 0` at the direction discontinuity. Plus see that we get the
+        // same result for `-target_angle` and the signum there chooses the orientation.
+        let tan_angle = target_angle.tan();
+
+        let angle_or_zero = if tan_angle == 0.0 {
+            1e-6
+        } else if tan_angle.abs() < 1e-6 {
+            1e-6 * tan_angle.signum()
+        } else {
+            tan_angle
+        };
+
+        let lambda = dev.normal.dot(frame.derivative).abs() / angle_or_zero;
+
+        // Note this may get the sign of the parameter incorrect. Now look at the direction of the
+        // surface development to determine the right sign. For using the existing sign, tangent,
+        // dir, normal should form a right-handed system. The curve has a 'signum' already but that
+        // is for the tangent normal system.
+        let signum = dev.normal.cross(frame.tangent).dot(dev.derivative_free).signum();
+
+        // ^ LLM anecdote: oneshot incorrectly. Previously believed to be correct though but it
+        // multiplied instead of divided. Stupid machine, stupid me for trusting it too much and
+        // getting myself confused in the process.
+        //
+        // It badly fumbled the derivation itself already, forgetting the square root in the
+        // cos(x)-identity or forgetting that subtract `1` changes the numerator..
+        let dt_normal = dev.derivative_base + lambda * signum * dev.derivative_free;
         let speed = frame.tangent.length();
 
         CurveDescription {
@@ -72,6 +99,7 @@ pub fn normal_and_angle_ode(
             dt_normal,
             curvature: dev.surface_curvature,
             speed,
+            angle: Some(target_angle),
         }
     }
 }
