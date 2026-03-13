@@ -1,10 +1,10 @@
-mod obj;
-mod svg;
-
 use dc_curves::{
     Curve, DenormalTangentFrame, SurfaceNormal, normal_and_flat_ode, normal_and_tan_ode,
 };
+
 use dc_integral::{CurveSegment, curve_ode_with_curvature};
+
+use dc_export::{svg, obj};
 
 enum OdeParameterization {
     Derivative,
@@ -94,10 +94,10 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
             );
         }
 
-        let svg = crate::svg::to_svg(&surface)?;
+        let svg = svg::to_svg(&surface)?;
         std::fs::write("/tmp/template-cylinder.svg", &svg)?;
 
-        let obj = crate::obj::to_obj(&surface)?;
+        let obj = obj::to_obj(&surface)?;
         std::fs::write("/tmp/template-cylinder.obj", &obj)?;
     }
 
@@ -117,10 +117,10 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
             );
         }
 
-        let svg = crate::svg::to_svg(&surface)?;
+        let svg = svg::to_svg(&surface)?;
         std::fs::write("/tmp/template-cone.svg", &svg)?;
 
-        let obj = crate::obj::to_obj(&surface)?;
+        let obj = obj::to_obj(&surface)?;
         std::fs::write("/tmp/template-cone.obj", &obj)?;
     }
 
@@ -141,10 +141,10 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
             );
         }
 
-        let svg = crate::svg::to_svg(&surface)?;
+        let svg = svg::to_svg(&surface)?;
         std::fs::write("/tmp/template-neat.svg", &svg)?;
 
-        let obj = crate::obj::to_obj(&surface)?;
+        let obj = obj::to_obj(&surface)?;
         std::fs::write("/tmp/template-neat.obj", &obj)?;
     }
 
@@ -184,11 +184,11 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
             );
         }
 
-        let svg = crate::svg::to_svg(&surface)?;
+        let svg = svg::to_svg(&surface)?;
         let name_particle = format!("_{factor}").replace('.', "p");
         std::fs::write(format!("/tmp/template-woah{name_particle}.svg"), &svg)?;
 
-        let obj = crate::obj::to_obj(&surface)?;
+        let obj = obj::to_obj(&surface)?;
         std::fs::write(format!("/tmp/template-woah{name_particle}.obj"), &obj)?;
     }
 

@@ -2,9 +2,10 @@
 //! mathematical convention. We unflip it because we are not savages.
 use core::fmt::Write as _;
 
-pub fn to_svg(
-    curve: &[(super::DenormalTangentFrame, super::CurveSegment)],
-) -> Result<String, core::fmt::Error> {
+use dc_integral::CurveSegment;
+use dc_theory::DenormalTangentFrame;
+
+pub fn to_svg(curve: &[(DenormalTangentFrame, CurveSegment)]) -> Result<String, core::fmt::Error> {
     let scale = 40.0;
 
     let (min, max) = curve.iter().fold(

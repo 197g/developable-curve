@@ -44,11 +44,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "dc-export"
+version = "0.0.0"
+dependencies = [
+ "dc-integral",
+ "dc-theory",
+ "glam",
+]
+
+[[package]]
 name = "dc-integral"
 version = "0.0.0"
 dependencies = [
  "dc-theory",
  "fast_ode",
+ "glam",
+]
+
+[[package]]
+name = "dc-plot"
+version = "0.0.0"
+dependencies = [
+ "dc-curves",
+ "dc-integral",
  "glam",
 ]
 
@@ -64,6 +82,7 @@ name = "example"
 version = "0.0.0"
 dependencies = [
  "dc-curves",
+ "dc-export",
  "dc-integral",
  "glam",
 ]

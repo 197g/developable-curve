@@ -1,8 +1,9 @@
 use core::fmt::Write as _;
 
-pub fn to_obj(
-    curve: &[(super::DenormalTangentFrame, super::CurveSegment)],
-) -> Result<String, core::fmt::Error> {
+use dc_integral::CurveSegment;
+use dc_theory::DenormalTangentFrame;
+
+pub fn to_obj(curve: &[(DenormalTangentFrame, CurveSegment)]) -> Result<String, core::fmt::Error> {
     let mut string = String::new();
 
     let tangent_scale = 0.5;

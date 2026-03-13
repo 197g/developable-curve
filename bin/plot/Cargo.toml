@@ -1,5 +1,5 @@
 [package]
-name = "example"
+name = "dc-plot"
 version = "0.0.0"
 edition = "2024"
 
@@ -7,4 +7,3 @@ edition = "2024"
 glam.workspace = true
 dc-curves.workspace = true
 dc-integral.workspace = true
-dc-export.workspace = true

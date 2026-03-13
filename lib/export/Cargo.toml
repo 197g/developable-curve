@@ -1,0 +1,9 @@
+[package]
+name = "dc-export"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+dc-theory.workspace = true
+dc-integral.workspace = true
+glam.workspace = true
