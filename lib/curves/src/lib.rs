@@ -120,15 +120,12 @@ pub fn stitch(end: CurveSegment, curve: impl Curve) -> (CurveSegment, f32) {
             SurfaceNormal { normal: end.normal },
         );
 
-        // Find lambda such that end.horizontal is orthogonal to the resulting normal derivative:
-        //     `development.derivative_base + lambda * derivative_free`
-        let lambda = -end.horizontal.dot(development.derivative_base)
-            / end.horizontal.dot(development.derivative_free);
-
-        lambda
+        let raw_angle = end.horizontal.angle_between(development.frame.tangent);
+        let signum = development.frame.tangent.cross(end.horizontal).dot(development.normal).signum();
+        signum * raw_angle - std::f32::consts::PI * 0.5
     };
 
-    let ode = normal_and_flat_ode(curve, |_| parameter);
+    let ode = normal_and_tan_ode(curve, |_| parameter);
     let basis = CurveSegment::initial(end.normal, ode);
 
     let start = CurveSegment {

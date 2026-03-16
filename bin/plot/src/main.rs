@@ -1,6 +1,6 @@
 use std::io::Write as _;
 
-use dc_curves::{Curve as _, DenormalTangentFrame, normal_and_flat_ode, stitch};
+use dc_curves::{Curve as _, DenormalTangentFrame, normal_and_tan_ode, stitch};
 use dc_integral::{CurveSegment, curve_ode_with_curvature};
 use glam::Vec3;
 
@@ -38,7 +38,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         panic!("At least two Hermite nodes are required to form a curve.")
     };
 
-    let ode = normal_and_flat_ode(&first, |_| 0.0);
+    let ode = normal_and_tan_ode(&first, |_| 0.0);
     let mut start = CurveSegment::initial(input.normal, ode);
 
     let mut segments: Vec<(DenormalTangentFrame, CurveSegment)> = vec![];
@@ -51,7 +51,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     {
         let first_parameter;
         if idx != 0 {
-            (start, first_parameter) = stitch(start, &curve);
+            let end_of_prev = start;
+            (start, first_parameter) = stitch(end_of_prev, &curve);
+            assert_eq!(start.normal, end_of_prev.normal);
+            assert!(start.horizontal.angle_between(end_of_prev.horizontal) < 1.0e-6);
         } else {
             first_parameter = 0.0;
         }
@@ -69,19 +72,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         });
 
+        let first_parameter = Parameter {
+            r#where: 0.0,
+            h: first_parameter,
+        };
+
         let final_param_if_empty = node.parameter.is_empty().then(|| Parameter {
             r#where: 1.0,
-            h: first_parameter,
+            h: first_parameter.h,
         });
 
         let mut iter = start;
         let mut ival_start = 0.0;
-        let mut hval_start = first_parameter;
+        let mut hval_start = first_parameter.h;
 
-        let base_nodes: Vec<_> = node
-            .parameter
-            .iter()
-            .copied()
+        let base_nodes: Vec<_> = core::iter::once(first_parameter)
+            .chain(node.parameter.iter().copied())
             .chain(final_param_if_not_1)
             .chain(final_param_if_empty)
             .collect();
@@ -114,7 +120,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let hinterpolate = linear_interpolate((ival_start, loc), (hval_start, h));
             let next = curve_ode_with_curvature(
-                normal_and_flat_ode(&curve, hinterpolate),
+                normal_and_tan_ode(&curve, hinterpolate),
                 iter.normal,
                 (iter.flat_position, iter.flat_direction),
                 (ival_start, loc),
@@ -130,7 +136,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         start = iter;
     }
 
-    let obj = dc_export::obj::to_obj(&segments)?;
+    let obj = dc_export::obj::ObjConfig {
+        tangent_scale: None,
+        normalize_horizontal: true,
+        ..Default::default()
+    };
+
+    let obj = obj.to_obj(&segments)?;
     std::io::stdout().write_all(&obj)?;
 
     Ok(())
@@ -145,7 +157,7 @@ fn read_parameterization() -> Parameterization {
                 tangent: [1.0, 0.0, 0.0],
                 parameter: vec![Parameter {
                     r#where: 0.5,
-                    h: 0.5,
+                    h: 0.2,
                 }],
             },
             HermiteNode {
@@ -161,7 +173,7 @@ fn read_parameterization() -> Parameterization {
                 tangent: [1.0, 0.1, 0.0],
                 parameter: vec![Parameter {
                     r#where: 0.5,
-                    h: -1.0,
+                    h: -0.16,
                 }],
             },
             HermiteNode {
