@@ -51,6 +51,101 @@ pub struct CurveSegment {
     pub angle: f32,
 }
 
+impl CurveSegment {
+    pub fn initial(normal: Vec3, ode: impl Fn(Vec3, f32) -> CurveDescription) -> Self {
+        let descriptor = ode(normal, 0.0);
+
+        if let Some(angle) = descriptor.angle {
+            Self::from_angle(normal, descriptor, angle)
+        } else {
+            Self::from_parameter_with_unstable_angle_at_zero(normal, descriptor)
+        }
+    }
+
+    fn from_angle(normal: Vec3, frame: CurveDescription, target_angle: f32) -> Self {
+        let horizontal = frame
+            .tangent
+            .rotate_axis(normal.normalize(), target_angle)
+            .normalize();
+        let angle = target_angle;
+
+        CurveSegment {
+            normal,
+            horizontal,
+            flat_position: Default::default(),
+            flat_direction: Default::default(),
+            angle,
+        }
+    }
+
+    fn from_parameter_with_unstable_angle_at_zero(
+        normal: Vec3,
+        end_descriptor: CurveDescription,
+    ) -> Self {
+        let pre_horizontal = end_descriptor.dt_normal.cross(normal);
+
+        // There is probably a cheaper way to get this, do not pass the whole frame. Or do we?
+        let signum = end_descriptor
+            .tangent
+            .cross(pre_horizontal)
+            .dot(normal)
+            .signum();
+
+        // Note: `<horizontal, frame.tangent> = v · ||frame.tangent||`
+        //
+        // if you want to control this angle. Expanded:
+        //
+        // cos(horizontal, frame.tangent) · ||horizontal|| · ||frame.tangent||
+        //     = <horizontal, frame.tangent>
+        //     = v · ||frame.tangent||
+        //
+        // v = cos(horizontal, frame.tangent) · ||horizontal||
+        //     = cos(horizontal, frame.tangent) · ||dt normal||
+        //     = cos(horizontal, frame.tangent) · sqrt(v² + <normal, frame.derivative>²)
+        //
+        // angle(horizontal, frame.tangent) = acos(v / sqrt(v² + <normal, frame.derivative>²))
+        //     = atan(|<normal, frame.derivative>| / v) ; by acos(x) = atan(sqrt(1-x²)/x)
+        //     = atan2(|<normal, frame.derivative>|, v)
+        //
+        // So we have a discontinuity. If the normal is perpendicular to `frame.derivative` then the
+        // `cos(angle) = +1/-1` so the two are parallel with no steering at all. Otherwise, we can
+        // choose `v = 0` for a guaranteed tangent-perpendicular horizontal line or any other
+        // non-parallel angle with appropriate `v`.
+        //
+        // So now you're asking, can we control `v` so that the discontinuity never occurs? Not in
+        // general if the frame.derivative is discontinuous. But also consider this an artifact of our
+        // choice of horizontal, the direction of which is discontinuous at the zero of `dt_normal`.
+        // And indeed at the same point we get a length of `0|v=0`. So really we should maybe instead
+        // be steering by the angle; and then calculating a corresponding `v` while having `v=0` and
+        // using our angle regardless at the discontinuity?
+
+        // I would prefer an acos2 with semantics
+        //     (cos(a)·||A||·||B||, ||A||·||B||) -> arccos(a)
+        // but this is good enough for now–we get to manually do the atan transform and it works out
+        // cleaner.
+        //
+        // FIXME: if we were handed `derivative_free` we could avoid this angle calculation and
+        // probably the signum itself, too. We could calculate `v` and the rest of this would fall out
+        // from atan2. But also if we were handed the angle then we could avoid the ill-defined
+        // calculation for that point entirely. Maybe having the angle as a parameter to the ODE is
+        // better after all and calculate horizontal as rotateAround(normal, angle).rotate(tangent)
+        // which I assume should itself simplify (TBD).
+        let angle = pre_horizontal.angle_between(end_descriptor.tangent) * signum;
+
+        // Make this the right-hand coordinate system instead (tangent, horizontal, normal). This makes
+        // it compatible with the curvature calculation.
+        let horizontal = pre_horizontal * signum;
+
+        CurveSegment {
+            normal,
+            horizontal,
+            flat_position: Default::default(),
+            flat_direction: Default::default(),
+            angle,
+        }
+    }
+}
+
 pub fn curve_ode_with_curvature(
     tangent: impl Fn(Vec3, f32) -> CurveDescription,
     base: Vec3,
@@ -114,75 +209,16 @@ pub fn curve_ode_with_curvature(
     // We are however free to choose a direction, let us pick a consistent one.
     let end_descriptor = (ode.0)(normal, end);
 
-    let (horizontal, angle);
-
-    if let Some(target_angle) = end_descriptor.angle {
-        horizontal = end_descriptor
-            .tangent
-            .rotate_axis(normal.normalize(), target_angle)
-            .normalize();
-        angle = target_angle;
+    let basis = if let Some(target_angle) = end_descriptor.angle {
+        CurveSegment::from_angle(normal, end_descriptor, target_angle)
     } else {
-        let pre_horizontal = end_descriptor.dt_normal.cross(normal);
-
-        // There is probably a cheaper way to get this, do not pass the whole frame. Or do we?
-        let signum = end_descriptor.tangent
-            .cross(pre_horizontal)
-            .dot(normal)
-            .signum();
-
-        // Note: `<horizontal, frame.tangent> = v · ||frame.tangent||`
-        //
-        // if you want to control this angle. Expanded:
-        //
-        // cos(horizontal, frame.tangent) · ||horizontal|| · ||frame.tangent||
-        //     = <horizontal, frame.tangent>
-        //     = v · ||frame.tangent||
-        //
-        // v = cos(horizontal, frame.tangent) · ||horizontal||
-        //     = cos(horizontal, frame.tangent) · ||dt normal||
-        //     = cos(horizontal, frame.tangent) · sqrt(v² + <normal, frame.derivative>²)
-        //
-        // angle(horizontal, frame.tangent) = acos(v / sqrt(v² + <normal, frame.derivative>²))
-        //     = atan(|<normal, frame.derivative>| / v) ; by acos(x) = atan(sqrt(1-x²)/x)
-        //     = atan2(|<normal, frame.derivative>|, v)
-        //
-        // So we have a discontinuity. If the normal is perpendicular to `frame.derivative` then the
-        // `cos(angle) = +1/-1` so the two are parallel with no steering at all. Otherwise, we can
-        // choose `v = 0` for a guaranteed tangent-perpendicular horizontal line or any other
-        // non-parallel angle with appropriate `v`.
-        //
-        // So now you're asking, can we control `v` so that the discontinuity never occurs? Not in
-        // general if the frame.derivative is discontinuous. But also consider this an artifact of our
-        // choice of horizontal, the direction of which is discontinuous at the zero of `dt_normal`.
-        // And indeed at the same point we get a length of `0|v=0`. So really we should maybe instead
-        // be steering by the angle; and then calculating a corresponding `v` while having `v=0` and
-        // using our angle regardless at the discontinuity?
-
-        // I would prefer an acos2 with semantics
-        //     (cos(a)·||A||·||B||, ||A||·||B||) -> arccos(a)
-        // but this is good enough for now–we get to manually do the atan transform and it works out
-        // cleaner.
-        //
-        // FIXME: if we were handed `derivative_free` we could avoid this angle calculation and
-        // probably the signum itself, too. We could calculate `v` and the rest of this would fall out
-        // from atan2. But also if we were handed the angle then we could avoid the ill-defined
-        // calculation for that point entirely. Maybe having the angle as a parameter to the ODE is
-        // better after all and calculate horizontal as rotateAround(normal, angle).rotate(tangent)
-        // which I assume should itself simplify (TBD).
-        angle = pre_horizontal.angle_between(end_descriptor.tangent) * signum;
-
-        // Make this the right-hand coordinate system instead (tangent, horizontal, normal). This makes
-        // it compatible with the curvature calculation.
-        horizontal = pre_horizontal * signum;
+        CurveSegment::from_parameter_with_unstable_angle_at_zero(normal, end_descriptor)
     };
 
     CurveSegment {
-        normal,
-        horizontal,
         flat_position: Vec2::from_array([fx, fy].map(|v| v as f32)),
         // We do not build a full frame..
         flat_direction: k as f32,
-        angle,
+        ..basis
     }
 }

@@ -5,7 +5,9 @@ use core::fmt::Write as _;
 use dc_integral::CurveSegment;
 use dc_theory::DenormalTangentFrame;
 
-pub fn to_svg(curve: &[(DenormalTangentFrame, CurveSegment)]) -> Result<String, core::fmt::Error> {
+pub fn to_svg(
+    curve: &[(DenormalTangentFrame, CurveSegment)],
+) -> Result<super::StrFileData, core::fmt::Error> {
     let scale = 40.0;
 
     let (min, max) = curve.iter().fold(
@@ -72,5 +74,5 @@ pub fn to_svg(curve: &[(DenormalTangentFrame, CurveSegment)]) -> Result<String, 
     }
 
     string.extend(eof.chars());
-    Ok(string)
+    Ok(super::StrFileData { contents: string })
 }

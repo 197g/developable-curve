@@ -6,4 +6,5 @@ edition = "2024"
 [dependencies]
 glam.workspace = true
 dc-curves.workspace = true
+dc-export.workspace = true
 dc-integral.workspace = true

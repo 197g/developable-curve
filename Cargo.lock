@@ -39,6 +39,7 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
 name = "dc-curves"
 version = "0.0.0"
 dependencies = [
+ "dc-integral",
  "dc-theory",
  "glam",
 ]
@@ -66,6 +67,7 @@ name = "dc-plot"
 version = "0.0.0"
 dependencies = [
  "dc-curves",
+ "dc-export",
  "dc-integral",
  "glam",
 ]

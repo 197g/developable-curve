@@ -4,7 +4,7 @@ use dc_curves::{
 
 use dc_integral::{CurveSegment, curve_ode_with_curvature};
 
-use dc_export::{svg, obj};
+use dc_export::{obj, svg};
 
 enum OdeParameterization {
     Derivative,
@@ -163,7 +163,7 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
 
         let c = 4.;
         let h = 2.;
-        let curve = dc_curves::HermiteSpline::<4> {
+        let curve = dc_curves::BezierSpline::<4> {
             points: [
                 glam::Vec3::from_array([c, c, -h]),
                 glam::Vec3::from_array([-c, c, h]),

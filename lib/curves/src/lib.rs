@@ -1,3 +1,4 @@
+use dc_integral::CurveSegment;
 use glam::Vec3;
 
 pub use dc_theory::*;
@@ -83,7 +84,11 @@ pub fn normal_and_tan_ode(
         // surface development to determine the right sign. For using the existing sign, tangent,
         // dir, normal should form a right-handed system. The curve has a 'signum' already but that
         // is for the tangent normal system.
-        let signum = dev.normal.cross(frame.tangent).dot(dev.derivative_free).signum();
+        let signum = dev
+            .normal
+            .cross(frame.tangent)
+            .dot(dev.derivative_free)
+            .signum();
 
         // ^ LLM anecdote: oneshot incorrectly. Previously believed to be correct though but it
         // multiplied instead of divided. Stupid machine, stupid me for trusting it too much and
@@ -102,6 +107,37 @@ pub fn normal_and_tan_ode(
             angle: Some(target_angle),
         }
     }
+}
+
+pub fn stitch(end: CurveSegment, curve: impl Curve) -> (CurveSegment, f32) {
+    // Determine `parameter` such that the horizontals match up (given that the normals will match
+    // up as well).
+    let parameter = {
+        let start_frame = curve.at(0.0);
+
+        let development = SurfaceDevelopment::from_frame_and_normal(
+            start_frame,
+            SurfaceNormal { normal: end.normal },
+        );
+
+        // Find lambda such that end.horizontal is orthogonal to the resulting normal derivative:
+        //     `development.derivative_base + lambda * derivative_free`
+        let lambda = -end.horizontal.dot(development.derivative_base)
+            / end.horizontal.dot(development.derivative_free);
+
+        lambda
+    };
+
+    let ode = normal_and_flat_ode(curve, |_| parameter);
+    let basis = CurveSegment::initial(end.normal, ode);
+
+    let start = CurveSegment {
+        flat_position: end.flat_position,
+        flat_direction: end.flat_direction,
+        ..basis
+    };
+
+    (start, parameter)
 }
 
 pub struct Circle {
@@ -124,12 +160,12 @@ impl Curve for Circle {
     }
 }
 
-pub struct HermiteSpline<const N: usize> {
+pub struct BezierSpline<const N: usize> {
     /// The points the curve should pass through.
     pub points: [Vec3; N],
 }
 
-impl Curve for HermiteSpline<2> {
+impl Curve for BezierSpline<2> {
     fn at(&self, t: f32) -> DenormalTangentFrame {
         let p0 = self.points[0];
         let p1 = self.points[1];
@@ -148,7 +184,7 @@ impl Curve for HermiteSpline<2> {
     }
 }
 
-impl Curve for HermiteSpline<3> {
+impl Curve for BezierSpline<3> {
     fn at(&self, t: f32) -> DenormalTangentFrame {
         let p0 = self.points[0];
         let p1 = self.points[1];
@@ -169,7 +205,7 @@ impl Curve for HermiteSpline<3> {
 }
 
 // This is where it gets interesting, this curve may have a curl.
-impl Curve for HermiteSpline<4> {
+impl Curve for BezierSpline<4> {
     fn at(&self, t: f32) -> DenormalTangentFrame {
         let p0 = self.points[0];
         let p1 = self.points[1];
