@@ -15,3 +15,9 @@ gauss-quad = "0.2.4"
 fast_ode = { version = "1", path = "vendor/fast_ode" }
 # Another ode solver, with more features and dependencies
 ode_solvers = "0.6.1"
+
+[profile.release]
+lto = true
+opt-level = "z"
+panic = "abort"
+strip = true
