@@ -4,7 +4,9 @@ version = "0.0.0"
 edition = "2024"
 
 [dependencies]
-glam.workspace = true
+clap = { version = "4", default-features = false, features = ["derive", "help", "std", "usage"] }
 dc-curves.workspace = true
 dc-export.workspace = true
 dc-integral.workspace = true
+glam.workspace = true
+miniserde = "0.1.45"

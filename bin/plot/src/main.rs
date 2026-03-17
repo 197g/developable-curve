@@ -1,32 +1,37 @@
-use std::io::Write as _;
+use std::io::{self, Read as _, Write as _};
 
+use clap::Parser;
 use dc_curves::{Curve as _, DenormalTangentFrame, normal_and_tan_ode, stitch};
+use dc_export::svg;
 use dc_integral::{CurveSegment, curve_ode_with_curvature};
 use glam::Vec3;
+use miniserde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone)]
+/// Develop a curve according to parameterization passed as JSON
+#[derive(Parser)]
+#[clap(about, version)]
+pub struct Args {
+    /// If not provided or explicitly '-', the program will read a JSON parameterization from stdin. For the JSON schema, see source code. Coming soon.
+    #[clap(long = "file", short = 'f')]
+    parameterization: Option<String>,
+    /// If not provided write the result to stdout.
+    #[clap(short, long)]
+    output: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct Parameterization {
     hermite: Vec<HermiteNode>,
-    normal: Vec3,
-}
-
-#[derive(Debug, Clone, Copy)]
-struct Parameter {
-    r#where: f32,
-    h: f32,
-}
-
-#[derive(Debug, Clone)]
-struct HermiteNode {
-    position: [f32; 3],
-    tangent: [f32; 3],
-    /// Hm, should we have on `parameter` on `Parameterization` where `loc` has an integer /
-    /// fractional part instead?
-    parameter: Vec<Parameter>,
+    normal: [f32; 3],
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let input: Parameterization = read_parameterization();
+    let args = Args::parse();
+    let mut io = IoResources::new(&args)?;
+
+    let mut data = String::new();
+    io.input.read_to_string(&mut data)?;
+    let input: Parameterization = miniserde::json::from_str(&data)?;
 
     let mut splines = Vec::new();
     for [a, b] in input.hermite.array_windows::<2>() {
@@ -39,7 +44,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let ode = normal_and_tan_ode(&first, |_| 0.0);
-    let mut start = CurveSegment::initial(input.normal, ode);
+    let mut start = CurveSegment::initial(Vec3::from_array(input.normal), ode);
 
     let mut segments: Vec<(DenormalTangentFrame, CurveSegment)> = vec![];
 
@@ -143,12 +148,47 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let obj = obj.to_obj(&segments)?;
-    std::io::stdout().write_all(&obj)?;
+    let svg = svg::to_svg(&segments)?;
+
+    let results = Results {
+        obj: obj.contents,
+        svg: svg.contents,
+    };
+
+    let json = miniserde::json::to_string(&results);
+    io.output.write_all(json.as_bytes())?;
 
     Ok(())
 }
 
-fn read_parameterization() -> Parameterization {
+struct IoResources {
+    input: Box<dyn io::Read>,
+    output: Box<dyn io::Write>,
+}
+
+impl IoResources {
+    fn new(args: &Args) -> Result<Self, std::io::Error> {
+        let input: Box<dyn io::Read> = match &args.parameterization {
+            Some(path) if path != "-" => Box::new(std::fs::File::open(path)?),
+            _ => Box::new(std::io::stdin()),
+        };
+
+        let output: Box<dyn io::Write> = match &args.output {
+            Some(path) if path != "-" => Box::new(std::fs::File::create(path)?),
+            _ => Box::new(std::io::stdout()),
+        };
+
+        Ok(Self { input, output })
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct Results {
+    obj: String,
+    svg: String,
+}
+
+fn default_parameterization() -> Parameterization {
     // For demonstration purposes, we will create a simple parameterization with two Hermite nodes.
     Parameterization {
         hermite: vec![
@@ -185,7 +225,7 @@ fn read_parameterization() -> Parameterization {
                 }],
             },
         ],
-        normal: Vec3::new(0.0, 0.0, 1.0),
+        normal: [0.0, 0.0, 1.0],
     }
 }
 
@@ -200,6 +240,21 @@ fn linear_interpolate(ival: (f32, f32), hval: (f32, f32)) -> impl Fn(f32) -> f32
 
         h0 + (h1 - h0) * ((t - x0) / (x1 - x0))
     }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct Parameter {
+    r#where: f32,
+    h: f32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct HermiteNode {
+    position: [f32; 3],
+    tangent: [f32; 3],
+    /// Hm, should we have on `parameter` on `Parameterization` where `loc` has an integer /
+    /// fractional part instead?
+    parameter: Vec<Parameter>,
 }
 
 impl HermiteNode {
