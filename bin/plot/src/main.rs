@@ -147,7 +147,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let obj = obj.to_obj(&segments)?;
-    let svg = svg::to_svg(&segments)?;
+    let svg = svg::to_svg(&segments, obj.scale)?;
 
     let results = Results {
         obj: obj.contents,

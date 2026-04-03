@@ -20,7 +20,7 @@ impl<T: Curve + ?Sized> Curve for &'_ T {
 pub fn normal_ode(curve: impl Curve, parameter: impl Fn(f32) -> f32) -> impl Fn(Vec3, f32) -> Vec3 {
     move |normal: Vec3, t: f32| {
         let frame = curve.at(t);
-        let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
+        let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { axis: normal });
         let lambda = parameter(t);
         dev.derivative_base + lambda * dev.derivative_free
     }
@@ -32,7 +32,7 @@ pub fn normal_and_flat_ode(
 ) -> impl Fn(Vec3, f32) -> CurveDescription {
     move |normal: Vec3, t: f32| {
         let frame = curve.at(t);
-        let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
+        let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { axis: normal });
         let lambda = parameter(t);
         let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
         let speed = frame.tangent.length();
@@ -57,7 +57,7 @@ pub fn normal_and_tan_ode(
 ) -> impl Fn(Vec3, f32) -> CurveDescription {
     move |normal: Vec3, t: f32| {
         let frame = curve.at(t);
-        let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { normal });
+        let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { axis: normal });
 
         // Set so that 0 refers to the same side as the 0 of the other parameterization.
         let target_angle = parameter(t) + std::f32::consts::PI * 0.5;
@@ -115,18 +115,20 @@ pub fn stitch(end: CurveSegment, curve: impl Curve) -> (CurveSegment, f32) {
     let parameter = {
         let start_frame = curve.at(0.0);
 
-        let development = SurfaceDevelopment::from_frame_and_normal(
-            start_frame,
-            SurfaceNormal { normal: end.normal },
-        );
+        let development = SurfaceDevelopment::from_frame_and_normal(start_frame, end.normal);
 
         let raw_angle = end.horizontal.angle_between(development.frame.tangent);
-        let signum = development.frame.tangent.cross(end.horizontal).dot(development.normal).signum();
+        let signum = development
+            .frame
+            .tangent
+            .cross(end.horizontal)
+            .dot(development.normal)
+            .signum();
         signum * raw_angle - std::f32::consts::PI * 0.5
     };
 
     let ode = normal_and_tan_ode(curve, |_| parameter);
-    let basis = CurveSegment::initial(end.normal, ode);
+    let basis = CurveSegment::initial(end.normal.axis, ode);
 
     let start = CurveSegment {
         flat_position: end.flat_position,

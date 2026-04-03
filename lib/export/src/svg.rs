@@ -3,13 +3,12 @@
 use core::fmt::Write as _;
 
 use dc_integral::CurveSegment;
-use dc_theory::DenormalTangentFrame;
+use dc_theory::{DenormalTangentFrame, SurfaceDevelopment};
 
 pub fn to_svg(
     curve: &[(DenormalTangentFrame, CurveSegment)],
+    to_mm: f32,
 ) -> Result<super::StrFileData, core::fmt::Error> {
-    let scale = 40.0;
-
     let (min, max) = curve.iter().fold(
         (
             [f32::INFINITY, f32::INFINITY],
@@ -23,6 +22,11 @@ pub fn to_svg(
         },
     );
 
+    // This is chosen such that the width of lines works visually together with the other parts of
+    // paining the figure. Whereas the real-world is then expressed by providing a physical size of
+    // the viewBox itself.
+    let scale = 400.0;
+
     let [rx, ry] = [
         (max[0] - min[0]).max(5.) * scale,
         (max[1] - min[1]).max(5.) * scale,
@@ -30,8 +34,11 @@ pub fn to_svg(
 
     let [mx, my] = [min[0] * scale, min[1] * scale];
 
+    let width_mm = to_mm * rx / scale;
+    let height_mm = to_mm * ry / scale;
+
     let mut string = format!(
-        r#"<svg version="1.1" viewBox="{mx:.4} {my:.4} {rx:.4} {ry:.4}" xmlns="http://www.w3.org/2000/svg" transform="scale(1,-1)" >{}</svg>"#,
+        r#"<svg version="1.1" viewBox="{mx:.4} {my:.4} {rx:.4} {ry:.4}" width={width_mm}mm height={height_mm}mm xmlns="http://www.w3.org/2000/svg" transform="scale(1,-1)" >{}</svg>"#,
         "\n",
     );
 
@@ -55,15 +62,20 @@ pub fn to_svg(
 
         writeln!(&mut string, r#"" stroke="black" fill="transparent" />"#)?;
 
-        for (_, segment) in curve.get(1..).into_iter().flatten() {
+        for (frame, segment) in curve.get(1..).into_iter().flatten() {
+            let dev = SurfaceDevelopment::from_frame_and_normal(frame.clone(), segment.normal);
+            let radius_of_curvature = dev.surface_curvature.max(1.0).recip();
+
             let [x, y] = segment.flat_position.to_array();
             let [x, y] = [x, y].map(|x| x * scale);
+
             let (dir_y, dir_x) = segment.flat_direction.sin_cos();
-            let angle_rotation = glam::Vec2::from_angle(segment.angle * std::f32::consts::PI);
+            let angle_rotation = glam::Vec2::from_angle(segment.angle);
             let [dir_x, dir_y] = angle_rotation
                 .rotate(glam::Vec2::new(dir_x, dir_y))
                 .to_array();
-            let [dx, dy] = [dir_x, dir_y].map(|x| x * scale);
+
+            let [dx, dy] = [dir_x, dir_y].map(|x| x * radius_of_curvature * scale);
 
             writeln!(
                 &mut string,
@@ -75,5 +87,9 @@ pub fn to_svg(
     }
 
     string.extend(eof.chars());
-    Ok(super::StrFileData { contents: string })
+
+    Ok(super::StrFileData {
+        contents: string,
+        scale,
+    })
 }

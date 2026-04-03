@@ -15,15 +15,16 @@ pub struct DenormalTangentFrame {
     pub binormal: Vec3,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SurfaceNormal {
     /// This should be *constant* length.
-    pub normal: Vec3,
+    pub axis: Vec3,
 }
 
 impl SurfaceNormal {
     pub fn from_array(arr: [f32; 3]) -> Self {
         Self {
-            normal: Vec3::from_array(arr).normalize(),
+            axis: Vec3::from_array(arr).normalize(),
         }
     }
 }
@@ -71,7 +72,7 @@ impl SurfaceDevelopment {
     /// Also note I did not say anything about Darboux frames. They are a special case here.
     pub fn from_frame_and_normal(
         frame: DenormalTangentFrame,
-        SurfaceNormal { normal }: SurfaceNormal,
+        SurfaceNormal { axis: normal }: SurfaceNormal,
     ) -> Self {
         // The constraints on the derivative are as follows:
         // 1. The surface normal has constant length.

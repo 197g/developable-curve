@@ -1,7 +1,7 @@
 use fast_ode::Coord;
 use glam::{Vec2, Vec3};
 
-use dc_theory::CurveDescription;
+use dc_theory::{CurveDescription, SurfaceNormal};
 
 pub fn curve_ode(
     tangent: impl Fn(Vec3, f32) -> Vec3,
@@ -44,7 +44,7 @@ pub fn curve_ode(
 
 #[derive(Clone, Copy)]
 pub struct CurveSegment {
-    pub normal: Vec3,
+    pub normal: SurfaceNormal,
     pub horizontal: Vec3,
     pub flat_position: Vec2,
     pub flat_direction: f32,
@@ -70,7 +70,7 @@ impl CurveSegment {
         let angle = target_angle;
 
         CurveSegment {
-            normal,
+            normal: SurfaceNormal { axis: normal },
             horizontal,
             flat_position: Default::default(),
             flat_direction: Default::default(),
@@ -171,7 +171,7 @@ impl CurveSegment {
         let horizontal = pre_horizontal * signum;
 
         CurveSegment {
-            normal,
+            normal: SurfaceNormal { axis: normal },
             horizontal,
             flat_position: Default::default(),
             flat_direction: Default::default(),
@@ -182,7 +182,7 @@ impl CurveSegment {
 
 pub fn curve_ode_with_curvature(
     tangent: impl Fn(Vec3, f32) -> CurveDescription,
-    base: Vec3,
+    base: SurfaceNormal,
     flat_base: (Vec2, f32),
     (start, end): (f32, f32),
 ) -> CurveSegment {
@@ -210,7 +210,7 @@ pub fn curve_ode_with_curvature(
     }
 
     let x0 = Coord::<6>({
-        let [x, y, z] = base.to_array().map(f64::from);
+        let [x, y, z] = base.axis.to_array().map(f64::from);
         let [cx, cy] = flat_base.0.to_array().map(f64::from);
         [x, y, z, cx, cy, f64::from(flat_base.1)]
     });

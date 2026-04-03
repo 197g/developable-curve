@@ -4,6 +4,7 @@ pub mod svg;
 #[must_use = "This must be written to a file to do anything."]
 pub struct StrFileData {
     pub contents: String,
+    pub scale: f32,
 }
 
 /// This is for use in `std::io::Write as _`.

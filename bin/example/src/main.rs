@@ -22,7 +22,7 @@ fn run_surface_along(
 
     // The initial surface normal must be orthogonal otherwise chaos.. Let's be loud.
     assert!(
-        initial.normal.dot(base.tangent) < 1e-6,
+        initial.axis.dot(base.tangent) < 1e-6,
         "Initial surface normal must be orthogonal to the tangent frame."
     );
 
@@ -33,7 +33,7 @@ fn run_surface_along(
     // FIXME: this should be done internally because `horizontal` is calculated by the derivative
     // of the normal of the segment, so this should involve the parameter choice `v`.
     let initial = CurveSegment {
-        normal: initial.normal,
+        normal: initial.axis,
         horizontal: Default::default(),
         flat_position: Default::default(),
         flat_direction: 0.0,
@@ -94,11 +94,11 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
             );
         }
 
-        let svg = svg::to_svg(&surface)?;
-        std::fs::write("/tmp/template-cylinder.svg", &svg)?;
-
         let obj = obj::to_obj(&surface)?;
         std::fs::write("/tmp/template-cylinder.obj", &obj)?;
+
+        let svg = svg::to_svg(&surface, obj.scale)?;
+        std::fs::write("/tmp/template-cylinder.svg", &svg)?;
     }
 
     {
@@ -117,11 +117,11 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
             );
         }
 
-        let svg = svg::to_svg(&surface)?;
-        std::fs::write("/tmp/template-cone.svg", &svg)?;
-
         let obj = obj::to_obj(&surface)?;
         std::fs::write("/tmp/template-cone.obj", &obj)?;
+
+        let svg = svg::to_svg(&surface, obj.scale)?;
+        std::fs::write("/tmp/template-cone.svg", &svg)?;
     }
 
     {
@@ -141,11 +141,11 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
             );
         }
 
-        let svg = svg::to_svg(&surface)?;
-        std::fs::write("/tmp/template-neat.svg", &svg)?;
-
         let obj = obj::to_obj(&surface)?;
         std::fs::write("/tmp/template-neat.obj", &obj)?;
+
+        let svg = svg::to_svg(&surface, obj.scale)?;
+        std::fs::write("/tmp/template-neat.svg", &svg)?;
     }
 
     for factor in [0.0, -0.3, -0.6] {
@@ -184,12 +184,12 @@ fn main() -> Result<(), Box<dyn core::error::Error>> {
             );
         }
 
-        let svg = svg::to_svg(&surface)?;
         let name_particle = format!("_{factor}").replace('.', "p");
-        std::fs::write(format!("/tmp/template-woah{name_particle}.svg"), &svg)?;
-
         let obj = obj::to_obj(&surface)?;
         std::fs::write(format!("/tmp/template-woah{name_particle}.obj"), &obj)?;
+
+        let svg = svg::to_svg(&surface, obj.scale)?;
+        std::fs::write(format!("/tmp/template-woah{name_particle}.svg"), &svg)?;
     }
 
     Ok(())
