@@ -23,6 +23,7 @@ pub struct Args {
 struct Parameterization {
     hermite: Vec<HermiteNode>,
     normal: [f32; 3],
+    parameter: Vec<Parameter>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -48,7 +49,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut segments: Vec<(DenormalTangentFrame, CurveSegment)> = vec![];
 
-    for (idx, (curve, node)) in [first]
+    for (idx, (curve, _node)) in [first]
         .into_iter()
         .chain(tail)
         .zip(&input.hermite)
@@ -64,26 +65,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             first_parameter = 0.0;
         }
 
+        let parameter = Parameter::extract(&input.parameter, idx);
         segments.push((curve.at(0.0), start));
         // We pad with a final (t; 1.0] evaluation in the end if that isn't present.
-        let final_param_if_not_1 = node.parameter.last().and_then(|p| {
-            if p.r#where < 1.0 {
-                Some(Parameter {
-                    r#where: 1.0,
-                    h: p.h,
-                })
+        let final_param_if_not_1 = parameter.last().and_then(|p| {
+            if p.loc < 1.0 {
+                Some(Parameter { loc: 1.0, h: p.h })
             } else {
                 None
             }
         });
 
         let first_parameter = Parameter {
-            r#where: 0.0,
+            loc: 0.0,
             h: first_parameter,
         };
 
-        let final_param_if_empty = node.parameter.is_empty().then(|| Parameter {
-            r#where: 1.0,
+        let final_param_if_empty = parameter.is_empty().then(|| Parameter {
+            loc: 1.0,
             h: first_parameter.h,
         });
 
@@ -92,18 +91,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut hval_start = first_parameter.h;
 
         let base_nodes: Vec<_> = core::iter::once(first_parameter)
-            .chain(node.parameter.iter().copied())
+            .chain(parameter.into_iter())
             .chain(final_param_if_not_1)
             .chain(final_param_if_empty)
             .collect();
 
         let interpolate_to_p01 = base_nodes.array_windows::<2>().flat_map(|&[start, end]| {
-            let n = ((end.r#where - start.r#where) / 0.01) as usize;
+            let n = ((end.loc - start.loc) / 0.01) as usize;
             let inner = (1..=n).map(move |i| {
-                let t = start.r#where + i as f32 * (end.r#where - start.r#where) / n as f32;
+                let t = start.loc + i as f32 * (end.loc - start.loc) / n as f32;
                 Parameter {
-                    r#where: t,
-                    h: linear_interpolate((start.r#where, end.r#where), (start.h, end.h))(t),
+                    loc: t,
+                    h: linear_interpolate((start.loc, end.loc), (start.h, end.h))(t),
                 }
             });
 
@@ -112,7 +111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .chain(std::iter::once(end))
         });
 
-        for Parameter { r#where: loc, h } in interpolate_to_p01 {
+        for Parameter { loc, h } in interpolate_to_p01 {
             // Skip duplicated nodes.
             if !(loc > ival_start) {
                 continue;
@@ -195,37 +194,27 @@ fn default_parameterization() -> Parameterization {
             HermiteNode {
                 position: [0.0, 0.0, 0.0],
                 tangent: [1.0, 0.0, 0.0],
-                parameter: vec![Parameter {
-                    r#where: 0.5,
-                    h: 0.2,
-                }],
             },
             HermiteNode {
                 position: [1.0, 0.0, 0.2],
                 tangent: [1.0, 0.1, 0.0],
-                parameter: vec![Parameter {
-                    r#where: 0.5,
-                    h: 0.0,
-                }],
             },
             HermiteNode {
                 position: [2.0, 0.0, 0.0],
                 tangent: [1.0, 0.1, 0.0],
-                parameter: vec![Parameter {
-                    r#where: 0.5,
-                    h: -0.16,
-                }],
             },
             HermiteNode {
                 position: [3.0, 0.0, 0.2],
                 tangent: [1.0, 0.2, 0.0],
-                parameter: vec![Parameter {
-                    r#where: 0.5,
-                    h: 0.0,
-                }],
             },
         ],
         normal: [0.0, 0.0, 1.0],
+        parameter: vec![
+            Parameter { loc: 0.5, h: 0.2 },
+            Parameter { loc: 1.5, h: 0.0 },
+            Parameter { loc: 2.5, h: -0.16 },
+            Parameter { loc: 3.5, h: 0.0 },
+        ],
     }
 }
 
@@ -244,17 +233,31 @@ fn linear_interpolate(ival: (f32, f32), hval: (f32, f32)) -> impl Fn(f32) -> f32
 
 #[derive(Debug, Clone, Copy, Deserialize)]
 struct Parameter {
-    r#where: f32,
+    loc: f32,
     h: f32,
+}
+
+impl Parameter {
+    fn extract(this: &[Self], idx: usize) -> Vec<Self> {
+        this.iter()
+            .filter_map(|p| {
+                if p.loc as usize == idx {
+                    Some(Parameter {
+                        loc: p.loc.fract(),
+                        h: p.h,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct HermiteNode {
     position: [f32; 3],
     tangent: [f32; 3],
-    /// Hm, should we have on `parameter` on `Parameterization` where `loc` has an integer /
-    /// fractional part instead?
-    parameter: Vec<Parameter>,
 }
 
 impl HermiteNode {

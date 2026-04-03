@@ -84,6 +84,40 @@ impl CurveSegment {
     ) -> Self {
         let pre_horizontal = end_descriptor.dt_normal.cross(normal);
 
+        // Solve (dt pre_horizontal) × tangent = 0
+        //   or (dt unit(pre_horizontal)) × tangent = 0
+        //
+        // Observe dt (unit(pre_horizontal)×tangent)
+        //   = (dt unit(pre_horizontal))×tangent + unit(pre_horizontal)×(dt tangent)
+        //
+        // FIXME: something not right here. Choosing `v = 0` does indeed generate a cone for which
+        // the derivative of the horizontal (up to the tip) is `-tangent`. Indeed any skew cone can
+        // be developed since the derivative of the horizontal is always in the plane spanned by
+        // the tangent and the horizontal.
+        //
+        // We have (dt unit(pre_horizontal))×tangent = 0 iff
+        //   dt (unit(pre_horizontal)×tangent) = unit(pre_horizontal)×(dt tangent)
+        //
+        // On the left: dt (||tangent|| normal)
+        //   = (dt ||tangent||) normal + ||tangent|| dt normal
+        //
+        // On the right: unit(pre_horizontal)×(dt tangent)
+        //   = unit(pre_horizontal)×(dt ||tangent|| unit(frame.tangent) + ||tangent|| frame.normal)
+        //   = (dt ||tangent||) normal + ||tangent|| unit(pre_horizontal)×frame.normal
+        //
+        // So we have … iff ||tangent|| dt normal = ||tangent|| unit(pre_horizontal)×frame.normal
+        //   iff dt normal = unit(pre_horizontal)×frame.normal
+        //   iff dt normal = unit(|sign|·normal×dt normal)×frame.normal
+        //   iff dt normal = |sign|(normal×dt normal)×frame.normal / ||dt normal||
+        //   iff dt normal = |sign|((normal·frame.normal) dt normal - (dt normal·frame.normal) normal) / ||dt normal||
+        //
+        // Note that for dt normal = <normal, frame.derivative>·unit(frame.tangent)
+        //   dt normal · frame.normal = frame.tangent·frame.normal = 0
+        //   ||dt normal|| = |<normal, frame.derivative>| = |<normal, frame.normal>|
+        //
+        // FIXME: ugh, there is this sign on the lhs and an absolute on the RHS. wat. Does this
+        // next step properly get rid of it?
+
         // There is probably a cheaper way to get this, do not pass the whole frame. Or do we?
         let signum = end_descriptor
             .tangent

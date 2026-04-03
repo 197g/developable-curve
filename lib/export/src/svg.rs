@@ -31,7 +31,8 @@ pub fn to_svg(
     let [mx, my] = [min[0] * scale, min[1] * scale];
 
     let mut string = format!(
-        r#"<svg version="1.1" viewBox="{mx:.4} {my:.4} {rx:.4} {ry:.4}" xmlns="http://www.w3.org/2000/svg" transform="scale(1,-1)" >\n</svg>"#
+        r#"<svg version="1.1" viewBox="{mx:.4} {my:.4} {rx:.4} {ry:.4}" xmlns="http://www.w3.org/2000/svg" transform="scale(1,-1)" >{}</svg>"#,
+        "\n",
     );
 
     let eof = string.split_off(string.find('>').unwrap() + 2);
