@@ -123,23 +123,28 @@ impl SurfaceDevelopment {
         //
         // What we're interested in is the length of the curve normal vector projected onto the
         // plane (given by its normal). That projection is of the form `T + o · normal` where `o`
-        // is `-<normal, T>`. We borrow a trick from curvature. A cross product preserves the
-        // lengths for orthogonal vectors: ||A|| = ||A×B|| / ||B||. And we can compute the cross
-        // product without doing the projection itself since B×B = 0. Since our plane normal has
-        // unit length we may as well be computing
+        // is `-<normal, T>`. We borrow a trick from curvature to measure the length of our surface
+        // projected normal vector. A cross product preserves the lengths for orthogonal vectors:
+        // ||A|| = ||A×B|| / ||B||.
         //
-        //     ||frame.normal × normal|| = || l · frame.normal × normal || / l
-        //     = || frame.derivative × normal - (<frame.tangent, frame.derivative> / l²) · frame.tangent × normal || / l
-        //     = || frame.derivative × normal || / l
+        // The cross product can be computed without running the projection itself since B×B = 0.
+        // Since our plane normal has unit length we may as well be computing
         //
-        // which is so absurdly clean I'm not even sure it is correct. Just one more division by
-        // `l` to correct for the non-unit speed of the curve—which makes this even cleaner. WTF.
+        //     ||projected_normal|| = ||frame.normal × normal|| = || l · frame.normal × normal || / l
+        //     = || (frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent) × normal || / l
+        //
+        // NOTE: previously got caught in a GPT-4.1 rabbit hole. It one-shot:
         //
         // `kappa = (dt frame.tangent×normal) / <frame.tangent, frame.tangent>`.
         //
-        //     GPT-4.1 almost oneshot this (without the above derivation) but used a dot instead of
-        //     cross product. It did not oneshot the explanation at all.
-        let kappa = normal.cross(frame.derivative).length() / frame.tangent.length_squared();
+        // (without the above derivation) but used a dot instead of cross product. It did not
+        // provide any explanation at all. This however caught me caught up in ignoring the term
+        // involving the tangent at all which led to crazy curvatures where l' != 0.
+        let kappa = {
+            let correction = frame.tangent.dot(frame.derivative) / frame.tangent.length_squared() * frame.tangent;
+            normal.cross(frame.derivative - correction).length() / frame.tangent.length()
+        };
+
         let sign_of_curve = frame.tangent.cross(frame.derivative).dot(normal).signum();
 
         Self {
