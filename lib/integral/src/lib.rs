@@ -206,8 +206,6 @@ pub fn curve_ode_with_curvature(
             // The unit speed curvature but `t` is not unit speed.
             let dkds = f64::from(curvature) * speed;
 
-            let speed_times_dt_speed = descriptor.tangent.dot(descriptor.dt_tangent);
-
             // k describes the current heading.
             let (my, mx) = k.sin_cos();
             // Since the 2d curve does not have unit speed either, it must be adjusted itself, too.

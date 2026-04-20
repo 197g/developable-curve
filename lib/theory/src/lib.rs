@@ -95,6 +95,31 @@ impl SurfaceDevelopment {
 
         let base = offset / frame.tangent.length_squared() * frame.tangent;
 
+        let sign_of_curve = frame.tangent.cross(frame.derivative).dot(normal).signum();
+
+        Self {
+            frame,
+            normal,
+            derivative_base: base,
+            derivative_free: dir,
+            signum: sign_of_curve,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct CurveDescription {
+    pub tangent: Vec3,
+    pub dt_tangent: Vec3,
+    pub dt_normal: Vec3,
+    /// Angle between the intended horizontal direction and the tangent. If set it must be
+    /// consistent with the `dt_normal` direction and its sign determines the orientation. Please
+    /// note that usually an angle of `+-90` is not possible.
+    pub angle: Option<f32>,
+}
+
+impl CurveDescription {
+    pub fn curvature_to_normal(&self, normal: Vec3) -> f32 {
         // Projected curvature is derived from projected curve normal. We can recover the
         // derivative of the othonormal frame of the curve first:
         //
@@ -132,32 +157,6 @@ impl SurfaceDevelopment {
         // (without the above derivation) and used a dot instead of cross product. It did not
         // provide any explanation at all. This however caught me caught up in ignoring the term
         // involving the tangent at all which led to crazy curvatures where l' != 0.
-
-        let sign_of_curve = frame.tangent.cross(frame.derivative).dot(normal).signum();
-
-        Self {
-            frame,
-            normal,
-            derivative_base: base,
-            derivative_free: dir,
-            signum: sign_of_curve,
-        }
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct CurveDescription {
-    pub tangent: Vec3,
-    pub dt_tangent: Vec3,
-    pub dt_normal: Vec3,
-    /// Angle between the intended horizontal direction and the tangent. If set it must be
-    /// consistent with the `dt_normal` direction and its sign determines the orientation. Please
-    /// note that usually an angle of `+-90` is not possible.
-    pub angle: Option<f32>,
-}
-
-impl CurveDescription {
-    pub fn curvature_to_normal(&self, normal: Vec3) -> f32 {
         let correction =
             self.tangent.dot(self.dt_tangent) / self.tangent.length_squared() * self.tangent;
 

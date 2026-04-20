@@ -187,37 +187,6 @@ struct Results {
     svg: String,
 }
 
-fn default_parameterization() -> Parameterization {
-    // For demonstration purposes, we will create a simple parameterization with two Hermite nodes.
-    Parameterization {
-        hermite: vec![
-            HermiteNode {
-                position: [0.0, 0.0, 0.0],
-                tangent: [1.0, 0.0, 0.0],
-            },
-            HermiteNode {
-                position: [1.0, 0.0, 0.2],
-                tangent: [1.0, 0.1, 0.0],
-            },
-            HermiteNode {
-                position: [2.0, 0.0, 0.0],
-                tangent: [1.0, 0.1, 0.0],
-            },
-            HermiteNode {
-                position: [3.0, 0.0, 0.2],
-                tangent: [1.0, 0.2, 0.0],
-            },
-        ],
-        normal: [0.0, 0.0, 1.0],
-        parameter: vec![
-            Parameter { loc: 0.5, h: 0.2 },
-            Parameter { loc: 1.5, h: 0.0 },
-            Parameter { loc: 2.5, h: -0.16 },
-            Parameter { loc: 3.5, h: 0.0 },
-        ],
-    }
-}
-
 fn linear_interpolate(ival: (f32, f32), hval: (f32, f32)) -> impl Fn(f32) -> f32 {
     move |t| {
         let (x0, x1) = ival;
