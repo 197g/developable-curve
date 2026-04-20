@@ -33,10 +33,11 @@ fn run_surface_along(
     // FIXME: this should be done internally because `horizontal` is calculated by the derivative
     // of the normal of the segment, so this should involve the parameter choice `v`.
     let initial = CurveSegment {
-        normal: initial.axis,
+        normal: initial,
         horizontal: Default::default(),
         flat_position: Default::default(),
         flat_direction: 0.0,
+        flat_curvature: 0.0,
         angle: 0.0,
     };
 

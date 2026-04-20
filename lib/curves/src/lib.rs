@@ -31,17 +31,14 @@ pub fn normal_and_flat_ode(
     parameter: impl Fn(f32) -> f32,
 ) -> impl Fn(Vec3, f32) -> CurveDescription {
     move |normal: Vec3, t: f32| {
-        let frame = curve.at(t);
-        let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { axis: normal });
+        let dev = SurfaceDevelopment::from_frame_and_normal(curve.at(t), SurfaceNormal { axis: normal });
         let lambda = parameter(t);
         let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
-        let speed = frame.tangent.length();
 
         CurveDescription {
             tangent: dev.frame.tangent,
+            dt_tangent: dev.frame.derivative,
             dt_normal,
-            curvature: dev.surface_curvature,
-            speed,
             angle: None,
         }
     }
@@ -97,13 +94,11 @@ pub fn normal_and_tan_ode(
         // It badly fumbled the derivation itself already, forgetting the square root in the
         // cos(x)-identity or forgetting that subtract `1` changes the numerator..
         let dt_normal = dev.derivative_base + lambda * signum * dev.derivative_free;
-        let speed = frame.tangent.length();
 
         CurveDescription {
             tangent: dev.frame.tangent,
+            dt_tangent: dev.frame.derivative,
             dt_normal,
-            curvature: dev.surface_curvature,
-            speed,
             angle: Some(target_angle),
         }
     }

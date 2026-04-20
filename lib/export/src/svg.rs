@@ -3,7 +3,7 @@
 use core::fmt::Write as _;
 
 use dc_integral::CurveSegment;
-use dc_theory::{DenormalTangentFrame, SurfaceDevelopment};
+use dc_theory::DenormalTangentFrame;
 
 pub fn to_svg(
     curve: &[(DenormalTangentFrame, CurveSegment)],
@@ -38,7 +38,7 @@ pub fn to_svg(
     let height_mm = to_mm * ry / scale;
 
     let mut string = format!(
-        r#"<svg version="1.1" viewBox="{mx:.4} {my:.4} {rx:.4} {ry:.4}" width={width_mm}mm height={height_mm}mm xmlns="http://www.w3.org/2000/svg" transform="scale(1,-1)" >{}</svg>"#,
+        r#"<svg version="1.1" viewBox="{mx:.4} {my:.4} {rx:.4} {ry:.4}" width="{width_mm}mm" height="{height_mm}mm" xmlns="http://www.w3.org/2000/svg" transform="scale(1,-1)" >{}</svg>"#,
         "\n",
     );
 
@@ -62,9 +62,8 @@ pub fn to_svg(
 
         writeln!(&mut string, r#"" stroke="black" fill="transparent" />"#)?;
 
-        for (frame, segment) in curve.get(1..).into_iter().flatten() {
-            let dev = SurfaceDevelopment::from_frame_and_normal(frame.clone(), segment.normal);
-            let radius_of_curvature = dev.surface_curvature.max(1.0).recip();
+        for (_, segment) in curve.get(1..).into_iter().flatten() {
+            let radius_of_curvature = segment.flat_curvature.max(1.0).recip();
 
             let [x, y] = segment.flat_position.to_array();
             let [x, y] = [x, y].map(|x| x * scale);

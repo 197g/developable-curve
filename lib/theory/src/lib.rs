@@ -38,23 +38,9 @@ pub struct SurfaceDevelopment {
     /// Derivative is free along a line normal to the normal. Add any multiple of this to the base
     /// and you get a valid derivative.
     pub derivative_free: Vec3,
-    /// The curvature at the surface, not of the curve.
-    pub surface_curvature: f32,
     /// What direction is the basic frame oriented? We want to stay on a consistent size even if
     /// the direction of the curvature flips.
     pub signum: f32,
-}
-
-#[derive(Clone, Copy)]
-pub struct CurveDescription {
-    pub tangent: Vec3,
-    pub dt_normal: Vec3,
-    pub curvature: f32,
-    pub speed: f32,
-    /// Angle between the intended horizontal direction and the tangent. If set it must be
-    /// consistent with the `dt_normal` direction and its sign determines the orientation. Please
-    /// note that usually an angle of `+-90` is not possible.
-    pub angle: Option<f32>,
 }
 
 impl SurfaceDevelopment {
@@ -114,12 +100,17 @@ impl SurfaceDevelopment {
         //
         //     with l(x) = |frame.tangent| = <frame.tangent, frame.tangent>^(1/2) and l' = dl/dt,
         //
-        //     frame.derivative = l · frame.normal + l' frame.tangent / l
+        //     The derivative of the tangent splits into a component of unit direction, and the
+        //     derivative of this unit direction vector in the direction of the normal. With `l`
+        //     being the parameterization's curve speed the 'normal' is `l` times larger than its
+        //     unit speed curve. So:
+        //
+        //     frame.derivative = (l · frame.utangent)' = l' frame.utangent + l² · frame.normal
         //     <frame.tangent, frame.derivative> = l' / l <frame.tangent, frame.tangent> = l' · l
         //
-        //     frame.derivative = l · frame.normal + (<frame.tangent, frame.derivative> / l) · frame.tangent / l
-        //     frame.derivative = l · frame.normal + (<frame.tangent, frame.derivative> / l²) · frame.tangent
-        //     l · frame.normal = frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent
+        //     frame.derivative = l² · frame.normal + (<frame.tangent, frame.derivative> / l) · frame.tangent / l
+        //     frame.derivative = l² · frame.normal + (<frame.tangent, frame.derivative> / l²) · frame.tangent
+        //     l² · frame.normal = frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent
         //
         // What we're interested in is the length of the curve normal vector projected onto the
         // plane (given by its normal). That projection is of the form `T + o · normal` where `o`
@@ -127,23 +118,20 @@ impl SurfaceDevelopment {
         // projected normal vector. A cross product preserves the lengths for orthogonal vectors:
         // ||A|| = ||A×B|| / ||B||.
         //
-        // The cross product can be computed without running the projection itself since B×B = 0.
-        // Since our plane normal has unit length we may as well be computing
+        // If we choose one of the two vectors to be the normal then the cross product can be
+        // computed without performing the projection since B×B = 0. Our plane normal also unit
+        // length so we may as well be computing
         //
-        //     ||projected_normal|| = ||frame.normal × normal|| = || l · frame.normal × normal || / l
-        //     = || (frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent) × normal || / l
+        //     ||projected_normal|| = ||frame.normal × normal|| = || l² · frame.normal × normal || / l²
+        //     = || (frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent) × normal || / l²
         //
         // NOTE: previously got caught in a GPT-4.1 rabbit hole. It one-shot:
         //
         // `kappa = (dt frame.tangent×normal) / <frame.tangent, frame.tangent>`.
         //
-        // (without the above derivation) but used a dot instead of cross product. It did not
+        // (without the above derivation) and used a dot instead of cross product. It did not
         // provide any explanation at all. This however caught me caught up in ignoring the term
         // involving the tangent at all which led to crazy curvatures where l' != 0.
-        let kappa = {
-            let correction = frame.tangent.dot(frame.derivative) / frame.tangent.length_squared() * frame.tangent;
-            normal.cross(frame.derivative - correction).length() / frame.tangent.length()
-        };
 
         let sign_of_curve = frame.tangent.cross(frame.derivative).dot(normal).signum();
 
@@ -152,8 +140,30 @@ impl SurfaceDevelopment {
             normal,
             derivative_base: base,
             derivative_free: dir,
-            surface_curvature: kappa * sign_of_curve,
             signum: sign_of_curve,
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub struct CurveDescription {
+    pub tangent: Vec3,
+    pub dt_tangent: Vec3,
+    pub dt_normal: Vec3,
+    /// Angle between the intended horizontal direction and the tangent. If set it must be
+    /// consistent with the `dt_normal` direction and its sign determines the orientation. Please
+    /// note that usually an angle of `+-90` is not possible.
+    pub angle: Option<f32>,
+}
+
+impl CurveDescription {
+    pub fn curvature_to_normal(&self, normal: Vec3) -> f32 {
+        let correction =
+            self.tangent.dot(self.dt_tangent) / self.tangent.length_squared() * self.tangent;
+
+        let sign_of_curve = self.tangent.cross(self.dt_tangent).dot(normal).signum();
+
+        normal.cross(self.dt_tangent - correction).length() / self.tangent.length_squared()
+            * sign_of_curve
     }
 }

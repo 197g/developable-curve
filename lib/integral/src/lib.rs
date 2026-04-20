@@ -48,6 +48,7 @@ pub struct CurveSegment {
     pub horizontal: Vec3,
     pub flat_position: Vec2,
     pub flat_direction: f32,
+    pub flat_curvature: f32,
     pub angle: f32,
 }
 
@@ -74,6 +75,7 @@ impl CurveSegment {
             horizontal,
             flat_position: Default::default(),
             flat_direction: Default::default(),
+            flat_curvature: 0.0f32,
             angle,
         }
     }
@@ -175,6 +177,7 @@ impl CurveSegment {
             horizontal,
             flat_position: Default::default(),
             flat_direction: Default::default(),
+            flat_curvature: 0.0f32,
             angle,
         }
     }
@@ -191,18 +194,24 @@ pub fn curve_ode_with_curvature(
     impl<F: Fn(Vec3, f32) -> CurveDescription> fast_ode::DifferentialEquation<6> for Ode<F> {
         fn ode_dot_y(&self, t: f64, ty: &Coord<6>) -> (Coord<6>, bool) {
             let [x, y, z, _, _, _] = ty.0;
-            let x = Vec3::new(x as f32, y as f32, z as f32);
-            let descriptor = (self.0)(x, t as f32);
+            let normal = Vec3::new(x as f32, y as f32, z as f32);
+            let descriptor = (self.0)(normal, t as f32);
 
             let [_, _, _, _cx, _cy, k] = ty.0;
             let [x, y, z] = descriptor.dt_normal.to_array().map(f64::from);
 
-            let speed = f64::from(descriptor.speed);
+            let speed = f64::from(descriptor.tangent.length());
+
+            let curvature = descriptor.curvature_to_normal(normal);
             // The unit speed curvature but `t` is not unit speed.
-            let dkds = f64::from(descriptor.curvature) * speed;
+            let dkds = f64::from(curvature) * speed;
+
+            let speed_times_dt_speed = descriptor.tangent.dot(descriptor.dt_tangent);
 
             // k describes the current heading.
             let (my, mx) = k.sin_cos();
+            // Since the 2d curve does not have unit speed either, it must be adjusted itself, too.
+
             let dt = [x, y, z, mx * speed, my * speed, dkds];
 
             (Coord(dt), true)
@@ -253,6 +262,7 @@ pub fn curve_ode_with_curvature(
         flat_position: Vec2::from_array([fx, fy].map(|v| v as f32)),
         // We do not build a full frame..
         flat_direction: k as f32,
+        flat_curvature: end_descriptor.curvature_to_normal(normal),
         ..basis
     }
 }

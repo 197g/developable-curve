@@ -1,7 +1,7 @@
 use core::fmt::Write as _;
 
 use dc_integral::CurveSegment;
-use dc_theory::{DenormalTangentFrame, SurfaceDevelopment};
+use dc_theory::DenormalTangentFrame;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ObjConfig {
@@ -78,8 +78,7 @@ pub fn to_obj_with(
         let [tx, ty, tz] = frame.tangent.to_array().map(|x| x * tangent_scale);
         let [nx, ny, nz] = segment.normal.axis.to_array().map(|x| x * normal_scale);
 
-        let dev = SurfaceDevelopment::from_frame_and_normal(frame.clone(), segment.normal);
-        let radius_of_curvature = dev.surface_curvature.max(1.0).recip();
+        let radius_of_curvature = segment.flat_curvature.max(1.0).recip();
 
         let [hx, hy, hz] = if cfg.normalize_horizontal {
             segment
