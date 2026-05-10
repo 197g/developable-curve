@@ -30,9 +30,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let mut io = IoResources::new(&args)?;
 
-    let mut data = String::new();
-    io.input.read_to_string(&mut data)?;
-    let input: Parameterization = miniserde::json::from_str(&data)?;
+    let mut cfg_data = String::new();
+    io.input.read_to_string(&mut cfg_data)?;
+    let input: Parameterization = miniserde::json::from_str(&cfg_data)?;
 
     let mut splines = Vec::new();
     for [a, b] in input.hermite.array_windows::<2>() {
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let ode = normal_and_tan_ode(&first, |_| 0.0);
-    let mut start = CurveSegment::initial(Vec3::from_array(input.normal), ode);
+    let mut start = CurveSegment::initial(Vec3::from_array(input.normal).as_dvec3(), ode);
 
     let mut segments: Vec<(DenormalTangentFrame, CurveSegment)> = vec![];
 
@@ -66,7 +66,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
 
         let parameter = Parameter::extract(&input.parameter, idx);
-        segments.push((curve.at(0.0), start));
+
+        if idx == 0 {
+            segments.push((curve.at(0.0), start));
+        }
+
         // We pad with a final (t; 1.0] evaluation in the end if that isn't present.
         let final_param_if_not_1 = parameter.last().and_then(|p| {
             if p.loc < 1.0 {
@@ -97,7 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .collect();
 
         let interpolate_to_p01 = base_nodes.array_windows::<2>().flat_map(|&[start, end]| {
-            let n = ((end.loc - start.loc) / 0.01) as usize;
+            let n = ((end.loc - start.loc) / 0.010) as usize;
             let inner = (1..=n).map(move |i| {
                 let t = start.loc + i as f32 * (end.loc - start.loc) / n as f32;
                 Parameter {
@@ -106,9 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             });
 
-            std::iter::once(start)
-                .chain(inner)
-                .chain(std::iter::once(end))
+            inner.chain(std::iter::once(end))
         });
 
         for Parameter { loc, h } in interpolate_to_p01 {
@@ -127,7 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 normal_and_tan_ode(&curve, hinterpolate),
                 iter.normal,
                 (iter.flat_position, iter.flat_direction),
-                (ival_start, loc),
+                (f64::from(ival_start), f64::from(loc)),
             );
 
             segments.push((curve.at(loc), next));
@@ -143,6 +145,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let obj = dc_export::obj::ObjConfig {
         tangent_scale: None,
         normalize_horizontal: true,
+        comment: Some(cfg_data),
         ..Default::default()
     };
 

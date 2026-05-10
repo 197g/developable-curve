@@ -50,7 +50,7 @@ fn run_surface_along(
             let ode_base = match ode {
                 OdeParameterization::Derivative => {
                     tmp0 = normal_and_flat_ode(curve, |_| v);
-                    &tmp0 as &dyn Fn(glam::Vec3, f32) -> _
+                    &tmp0 as &dyn Fn(glam::DVec3, f64) -> _
                 }
                 OdeParameterization::Angle => {
                     tmp1 = normal_and_tan_ode(curve, |_| v);
@@ -60,7 +60,7 @@ fn run_surface_along(
 
             let normal_x0 = state.0.normal;
             let flat_x0 = (state.0.flat_position, state.0.flat_direction);
-            let time_segment = (state.1, ts);
+            let time_segment = (f64::from(state.1), f64::from(ts));
 
             let endpoint = curve_ode_with_curvature(ode_base, normal_x0, flat_x0, time_segment);
 

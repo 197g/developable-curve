@@ -11,8 +11,8 @@ pub fn to_svg(
 ) -> Result<super::StrFileData, core::fmt::Error> {
     let (min, max) = curve.iter().fold(
         (
-            [f32::INFINITY, f32::INFINITY],
-            [f32::NEG_INFINITY, f32::NEG_INFINITY],
+            [f64::INFINITY, f64::INFINITY],
+            [f64::NEG_INFINITY, f64::NEG_INFINITY],
         ),
         |(min, max), (_, segment)| {
             let [x, y] = segment.flat_position.to_array();
@@ -34,8 +34,8 @@ pub fn to_svg(
 
     let [mx, my] = [min[0] * scale, min[1] * scale];
 
-    let width_mm = to_mm * rx / scale;
-    let height_mm = to_mm * ry / scale;
+    let width_mm = f64::from(to_mm) * rx / scale;
+    let height_mm = f64::from(to_mm) * ry / scale;
 
     let mut string = format!(
         r#"<svg version="1.1" viewBox="{mx:.4} {my:.4} {rx:.4} {ry:.4}" width="{width_mm}mm" height="{height_mm}mm" xmlns="http://www.w3.org/2000/svg" transform="scale(1,-1)" >{}</svg>"#,
@@ -63,15 +63,15 @@ pub fn to_svg(
         writeln!(&mut string, r#"" stroke="black" fill="transparent" />"#)?;
 
         for (_, segment) in curve.get(1..).into_iter().flatten() {
-            let radius_of_curvature = segment.flat_curvature.max(1.0).recip();
+            let radius_of_curvature = (1.1 * segment.flat_curvature).max(1.0).recip();
 
             let [x, y] = segment.flat_position.to_array();
             let [x, y] = [x, y].map(|x| x * scale);
 
             let (dir_y, dir_x) = segment.flat_direction.sin_cos();
-            let angle_rotation = glam::Vec2::from_angle(segment.angle);
+            let angle_rotation = glam::DVec2::from_angle(segment.angle);
             let [dir_x, dir_y] = angle_rotation
-                .rotate(glam::Vec2::new(dir_x, dir_y))
+                .rotate(glam::DVec2::new(dir_x, dir_y))
                 .to_array();
 
             let [dx, dy] = [dir_x, dir_y].map(|x| x * radius_of_curvature * scale);
@@ -89,6 +89,6 @@ pub fn to_svg(
 
     Ok(super::StrFileData {
         contents: string,
-        scale,
+        scale: scale as f32,
     })
 }

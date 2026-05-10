@@ -1,5 +1,5 @@
 use dc_integral::CurveSegment;
-use glam::Vec3;
+use glam::{DVec3, Vec3};
 
 pub use dc_theory::*;
 
@@ -17,11 +17,11 @@ impl<T: Curve + ?Sized> Curve for &'_ T {
     }
 }
 
-pub fn normal_ode(curve: impl Curve, parameter: impl Fn(f32) -> f32) -> impl Fn(Vec3, f32) -> Vec3 {
-    move |normal: Vec3, t: f32| {
-        let frame = curve.at(t);
+pub fn normal_ode(curve: impl Curve, parameter: impl Fn(f32) -> f32) -> impl Fn(DVec3, f64) -> DVec3 {
+    move |normal: DVec3, t: f64| {
+        let frame = curve.at(t as f32);
         let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { axis: normal });
-        let lambda = parameter(t);
+        let lambda = f64::from(parameter(t as f32));
         dev.derivative_base + lambda * dev.derivative_free
     }
 }
@@ -29,10 +29,11 @@ pub fn normal_ode(curve: impl Curve, parameter: impl Fn(f32) -> f32) -> impl Fn(
 pub fn normal_and_flat_ode(
     curve: impl Curve,
     parameter: impl Fn(f32) -> f32,
-) -> impl Fn(Vec3, f32) -> CurveDescription {
-    move |normal: Vec3, t: f32| {
-        let dev = SurfaceDevelopment::from_frame_and_normal(curve.at(t), SurfaceNormal { axis: normal });
-        let lambda = parameter(t);
+) -> impl Fn(DVec3, f64) -> CurveDescription {
+    move |normal: DVec3, t: f64| {
+        let dev =
+            SurfaceDevelopment::from_frame_and_normal(curve.at(t as f32), SurfaceNormal { axis: normal });
+        let lambda = f64::from(parameter(t as f32));
         let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
 
         CurveDescription {
@@ -40,6 +41,7 @@ pub fn normal_and_flat_ode(
             dt_tangent: dev.frame.derivative,
             dt_normal,
             angle: None,
+            dt_normal_normalized: None,
         }
     }
 }
@@ -51,13 +53,13 @@ pub fn normal_and_tan_ode(
     // Provides intended `angle` at a point `t` on the curve where `0` is orthogonal to the left
     // side of the tangent in the normal plane.
     parameter: impl Fn(f32) -> f32,
-) -> impl Fn(Vec3, f32) -> CurveDescription {
-    move |normal: Vec3, t: f32| {
-        let frame = curve.at(t);
+) -> impl Fn(DVec3, f64) -> CurveDescription {
+    move |normal: DVec3, t: f64| {
+        let frame = curve.at(t as f32);
         let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { axis: normal });
 
         // Set so that 0 refers to the same side as the 0 of the other parameterization.
-        let target_angle = parameter(t) + std::f32::consts::PI * 0.5;
+        let target_angle = f64::from(parameter(t as f32)) + std::f64::consts::PI * 0.5;
 
         // angle(horizontal, frame.tangent) = atan2(<normal, frame.derivative>, lambda)
         //
@@ -94,12 +96,14 @@ pub fn normal_and_tan_ode(
         // It badly fumbled the derivation itself already, forgetting the square root in the
         // cos(x)-identity or forgetting that subtract `1` changes the numerator..
         let dt_normal = dev.derivative_base + lambda * signum * dev.derivative_free;
+        let dt_normalized = frame.tangent.normalize();
 
         CurveDescription {
             tangent: dev.frame.tangent,
             dt_tangent: dev.frame.derivative,
             dt_normal,
             angle: Some(target_angle),
+            dt_normal_normalized: Some(dt_normalized.normalize()),
         }
     }
 }
@@ -109,7 +113,6 @@ pub fn stitch(end: CurveSegment, curve: impl Curve) -> (CurveSegment, f32) {
     // up as well).
     let parameter = {
         let start_frame = curve.at(0.0);
-
         let development = SurfaceDevelopment::from_frame_and_normal(start_frame, end.normal);
 
         let raw_angle = end.horizontal.angle_between(development.frame.tangent);
@@ -119,19 +122,21 @@ pub fn stitch(end: CurveSegment, curve: impl Curve) -> (CurveSegment, f32) {
             .cross(end.horizontal)
             .dot(development.normal)
             .signum();
-        signum * raw_angle - std::f32::consts::PI * 0.5
+
+        signum * raw_angle - std::f64::consts::PI * 0.5
     };
 
-    let ode = normal_and_tan_ode(curve, |_| parameter);
+    let ode = normal_and_tan_ode(curve, |_| parameter as f32);
     let basis = CurveSegment::initial(end.normal.axis, ode);
 
     let start = CurveSegment {
         flat_position: end.flat_position,
         flat_direction: end.flat_direction,
+        flat_curvature: end.flat_curvature,
         ..basis
     };
 
-    (start, parameter)
+    (start, parameter as f32)
 }
 
 pub struct Circle {
@@ -140,10 +145,12 @@ pub struct Circle {
 
 impl Curve for Circle {
     fn at(&self, t: f32) -> DenormalTangentFrame {
-        let base = Vec3::new(t.cos(), t.sin(), 0.0) * self.radius;
-        let tangent = Vec3::new(-t.sin(), t.cos(), 0.0) * self.radius;
-        let derivative = Vec3::new(-t.cos(), -t.sin(), 0.0) * self.radius;
-        let binormal = Vec3::new(0.0, 0.0, 1.0);
+        let t = f64::from(t);
+
+        let base = DVec3::new(t.cos(), t.sin(), 0.0) * f64::from(self.radius);
+        let tangent = DVec3::new(-t.sin(), t.cos(), 0.0) * f64::from(self.radius);
+        let derivative = DVec3::new(-t.cos(), -t.sin(), 0.0) * f64::from(self.radius);
+        let binormal = DVec3::new(0.0, 0.0, 1.0);
 
         DenormalTangentFrame {
             base,
@@ -164,10 +171,10 @@ impl Curve for BezierSpline<2> {
         let p0 = self.points[0];
         let p1 = self.points[1];
 
-        let base = p0.lerp(p1, t);
-        let tangent = p1 - p0;
-        let derivative = Vec3::ZERO;
-        let binormal = Vec3::ZERO;
+        let base = p0.lerp(p1, t).as_dvec3();
+        let tangent = (p1 - p0).as_dvec3();
+        let derivative = DVec3::ZERO;
+        let binormal = DVec3::ZERO;
 
         DenormalTangentFrame {
             base,
@@ -187,12 +194,12 @@ impl Curve for BezierSpline<3> {
         let base = p0 * (1.0 - t).powi(2) + p1 * 2.0 * (1.0 - t) * t + p2 * t.powi(2);
         let tangent = (p1 - p0) * 2.0 * (1.0 - t) + (p2 - p1) * 2.0 * t;
         let derivative = (p2 - 2.0 * p1 + p0) * 2.0;
-        let binormal = Vec3::ZERO;
+        let binormal = DVec3::ZERO;
 
         DenormalTangentFrame {
-            base,
-            tangent,
-            derivative,
+            base: base.as_dvec3(),
+            tangent: tangent.as_dvec3(),
+            derivative: derivative.as_dvec3(),
             binormal,
         }
     }
@@ -222,10 +229,10 @@ impl Curve for BezierSpline<4> {
         let binormal = (p3 - 3.0 * p2 + 3.0 * p1 - p0) * 6.0;
 
         DenormalTangentFrame {
-            base,
-            tangent,
-            derivative,
-            binormal,
+            base: base.as_dvec3(),
+            tangent: tangent.as_dvec3(),
+            derivative: derivative.as_dvec3(),
+            binormal: binormal.as_dvec3(),
         }
     }
 }

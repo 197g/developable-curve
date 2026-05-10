@@ -1,43 +1,43 @@
-use glam::Vec3;
+use glam::DVec3;
 
 /// A *non*-normalized frame. Pretty much none of our definitions care about it.
 #[derive(Clone, Copy, Debug)]
 pub struct DenormalTangentFrame {
     /// The point on the curve.
-    pub base: Vec3,
+    pub base: DVec3,
     /// The tangent `f(t)'`. Note we do not require unit speed curves. This can have any (non-zero)
     /// length.
-    pub tangent: Vec3,
+    pub tangent: DVec3,
     /// Derivative of the tangent. Also called `normal` if `tangent` is constant unit length and
     /// curve is unit speed.
-    pub derivative: Vec3,
+    pub derivative: DVec3,
     /// Describe the curl.
-    pub binormal: Vec3,
+    pub binormal: DVec3,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SurfaceNormal {
     /// This should be *constant* length.
-    pub axis: Vec3,
+    pub axis: DVec3,
 }
 
 impl SurfaceNormal {
     pub fn from_array(arr: [f32; 3]) -> Self {
         Self {
-            axis: Vec3::from_array(arr).normalize(),
+            axis: DVec3::from_array(arr.map(f64::from)).normalize(),
         }
     }
 }
 
 pub struct SurfaceDevelopment {
     pub frame: DenormalTangentFrame,
-    pub normal: Vec3,
+    pub normal: DVec3,
     /// A point fulfilling the constraints with the tangent frame to remain orthogonal to the
     /// tangent.
-    pub derivative_base: Vec3,
+    pub derivative_base: DVec3,
     /// Derivative is free along a line normal to the normal. Add any multiple of this to the base
     /// and you get a valid derivative.
-    pub derivative_free: Vec3,
+    pub derivative_free: DVec3,
     /// What direction is the basic frame oriented? We want to stay on a consistent size even if
     /// the direction of the curvature flips.
     pub signum: f32,
@@ -102,24 +102,25 @@ impl SurfaceDevelopment {
             normal,
             derivative_base: base,
             derivative_free: dir,
-            signum: sign_of_curve,
+            signum: sign_of_curve as f32,
         }
     }
 }
 
 #[derive(Clone, Copy)]
 pub struct CurveDescription {
-    pub tangent: Vec3,
-    pub dt_tangent: Vec3,
-    pub dt_normal: Vec3,
+    pub tangent: DVec3,
+    pub dt_tangent: DVec3,
+    pub dt_normal: DVec3,
     /// Angle between the intended horizontal direction and the tangent. If set it must be
     /// consistent with the `dt_normal` direction and its sign determines the orientation. Please
     /// note that usually an angle of `+-90` is not possible.
-    pub angle: Option<f32>,
+    pub angle: Option<f64>,
+    pub dt_normal_normalized: Option<DVec3>,
 }
 
 impl CurveDescription {
-    pub fn curvature_to_normal(&self, normal: Vec3) -> f32 {
+    pub fn curvature_to_normal(&self, normal: DVec3) -> f64 {
         // Projected curvature is derived from projected curve normal. We can recover the
         // derivative of the othonormal frame of the curve first:
         //
@@ -130,25 +131,32 @@ impl CurveDescription {
         //     being the parameterization's curve speed the 'normal' is `l` times larger than its
         //     unit speed curve. So:
         //
-        //     frame.derivative = (l · frame.utangent)' = l' frame.utangent + l² · frame.normal
+        //     frame.derivative = (l · frame.utangent)' = l' frame.utangent + l · dt frame.utangent
         //     <frame.tangent, frame.derivative> = l' / l <frame.tangent, frame.tangent> = l' · l
         //
-        //     frame.derivative = l² · frame.normal + (<frame.tangent, frame.derivative> / l) · frame.tangent / l
-        //     frame.derivative = l² · frame.normal + (<frame.tangent, frame.derivative> / l²) · frame.tangent
-        //     l² · frame.normal = frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent
+        //     frame.derivative = l · dt frame.utangent + (<frame.tangent, frame.derivative> / l) · frame.tangent / l
+        //     frame.derivative = l · dt frame.utangent + (<frame.tangent, frame.derivative> / l²) · frame.tangent
+        //     l · dt frame.utangent = frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent
         //
-        // What we're interested in is the length of the curve normal vector projected onto the
-        // plane (given by its normal). That projection is of the form `T + o · normal` where `o`
-        // is `-<normal, T>`. We borrow a trick from curvature to measure the length of our surface
-        // projected normal vector. A cross product preserves the lengths for orthogonal vectors:
-        // ||A|| = ||A×B|| / ||B||.
+        // We can measure the flattened curvature through the distance metric that is necessarily
+        // preserved by our projection.
         //
-        // If we choose one of the two vectors to be the normal then the cross product can be
-        // computed without performing the projection since B×B = 0. Our plane normal also unit
-        // length so we may as well be computing
+        //   ĸ = || du r × ds (du r) || = || ds (du r) || since du r is a unit vector.
         //
-        //     ||projected_normal|| = ||frame.normal × normal|| = || l² · frame.normal × normal || / l²
-        //     = || (frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent) × normal || / l²
+        // For a non-unit speed curve we need to find their unit-speed equivalents. In particular:
+        //
+        //     ds normal = (dt / ds) · (ds / dt) ds normal = dt normal · (dt / ds) = dt normal / l
+        //
+        //     (ds / dt) = ||frame.tangent|| = l
+        //
+        // Thusly
+        //
+        //     ds (du r) = ds (frame.utangent × normal)
+        //     = ds frame.utangent × normal + frame.utangent × ds normal
+        //     = dt frame.utangent × normal / l + frame.utangent × dt normal / l
+        //
+        //     dt frame.utangent × normal = l · dt frame.utangent × normal / l
+        //     = ((frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent) × normal) / l
         //
         // NOTE: previously got caught in a GPT-4.1 rabbit hole. It one-shot:
         //
@@ -157,12 +165,10 @@ impl CurveDescription {
         // (without the above derivation) and used a dot instead of cross product. It did not
         // provide any explanation at all. This however caught me caught up in ignoring the term
         // involving the tangent at all which led to crazy curvatures where l' != 0.
-        let correction =
-            self.tangent.dot(self.dt_tangent) / self.tangent.length_squared() * self.tangent;
+        let v = normal.cross(self.tangent) / self.tangent.length();
 
-        let sign_of_curve = self.tangent.cross(self.dt_tangent).dot(normal).signum();
-
-        normal.cross(self.dt_tangent - correction).length() / self.tangent.length_squared()
-            * sign_of_curve
+        self.tangent.cross(normal).dot(self.dt_tangent)
+            / self.tangent.length_squared()
+            / self.tangent.length()
     }
 }

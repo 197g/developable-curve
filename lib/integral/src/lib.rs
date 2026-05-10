@@ -1,19 +1,19 @@
 use fast_ode::Coord;
-use glam::{Vec2, Vec3};
+use glam::{DVec2, DVec3};
 
 use dc_theory::{CurveDescription, SurfaceNormal};
 
 pub fn curve_ode(
-    tangent: impl Fn(Vec3, f32) -> Vec3,
-    base: Vec3,
-    (start, end): (f32, f32),
-) -> Vec3 {
-    struct Ode<F: Fn(Vec3, f32) -> Vec3>(F);
+    tangent: impl Fn(DVec3, f64) -> DVec3,
+    base: DVec3,
+    (start, end): (f64, f64),
+) -> DVec3 {
+    struct Ode<F: Fn(DVec3, f64) -> DVec3>(F);
 
-    impl<F: Fn(Vec3, f32) -> Vec3> fast_ode::DifferentialEquation<3> for Ode<F> {
+    impl<F: Fn(DVec3, f64) -> DVec3> fast_ode::DifferentialEquation<3> for Ode<F> {
         fn ode_dot_y(&self, t: f64, y: &Coord<3>) -> (Coord<3>, bool) {
-            let x = Vec3::from_array(y.0.map(|v| v as f32));
-            let tangent = (self.0)(x, t as f32);
+            let x = DVec3::from_array(y.0);
+            let tangent = (self.0)(x, t);
             (Coord(tangent.to_array().map(f64::from)), true)
         }
     }
@@ -39,21 +39,27 @@ pub fn curve_ode(
         }
     };
 
-    Vec3::from_array(x1.0.map(|v| v as f32))
+    DVec3::from_array(x1.0)
 }
 
 #[derive(Clone, Copy)]
 pub struct CurveSegment {
     pub normal: SurfaceNormal,
-    pub horizontal: Vec3,
-    pub flat_position: Vec2,
-    pub flat_direction: f32,
-    pub flat_curvature: f32,
-    pub angle: f32,
+    pub horizontal: DVec3,
+    pub flat_position: DVec2,
+    pub flat_direction: f64,
+    pub flat_curvature: f64,
+    pub angle: f64,
+}
+
+fn warn_nonzero(actual: f64, what: &str) {
+    if !(actual < 1e-8) {
+        eprintln!("{what}: {actual}");
+    }
 }
 
 impl CurveSegment {
-    pub fn initial(normal: Vec3, ode: impl Fn(Vec3, f32) -> CurveDescription) -> Self {
+    pub fn initial(normal: DVec3, ode: impl Fn(DVec3, f64) -> CurveDescription) -> Self {
         let descriptor = ode(normal, 0.0);
 
         if let Some(angle) = descriptor.angle {
@@ -63,25 +69,37 @@ impl CurveSegment {
         }
     }
 
-    fn from_angle(normal: Vec3, frame: CurveDescription, target_angle: f32) -> Self {
+    fn from_angle(normal: DVec3, frame: CurveDescription, target_angle: f64) -> Self {
         let horizontal = frame
             .tangent
             .rotate_axis(normal.normalize(), target_angle)
             .normalize();
+
         let angle = target_angle;
+
+        warn_nonzero(horizontal.dot(frame.dt_normal), "horizontal to dt normal");
+        warn_nonzero(frame.tangent.dot(normal), "normal to tangent");
+        warn_nonzero(horizontal.dot(normal), "normal to horizontal");
+
+        assert!(
+            (normal.dot(frame.dt_tangent) + frame.dt_normal.dot(frame.tangent)).abs() < 1e-8,
+            "{:.8} / {:.8}",
+            normal.dot(frame.dt_tangent),
+            frame.dt_normal.dot(frame.tangent),
+        );
 
         CurveSegment {
             normal: SurfaceNormal { axis: normal },
             horizontal,
             flat_position: Default::default(),
             flat_direction: Default::default(),
-            flat_curvature: 0.0f32,
+            flat_curvature: 0.0,
             angle,
         }
     }
 
     fn from_parameter_with_unstable_angle_at_zero(
-        normal: Vec3,
+        normal: DVec3,
         end_descriptor: CurveDescription,
     ) -> Self {
         let pre_horizontal = end_descriptor.dt_normal.cross(normal);
@@ -177,25 +195,25 @@ impl CurveSegment {
             horizontal,
             flat_position: Default::default(),
             flat_direction: Default::default(),
-            flat_curvature: 0.0f32,
+            flat_curvature: 0.0,
             angle,
         }
     }
 }
 
 pub fn curve_ode_with_curvature(
-    tangent: impl Fn(Vec3, f32) -> CurveDescription,
+    tangent: impl Fn(DVec3, f64) -> CurveDescription,
     base: SurfaceNormal,
-    flat_base: (Vec2, f32),
-    (start, end): (f32, f32),
+    flat_base: (DVec2, f64),
+    (start, end): (f64, f64),
 ) -> CurveSegment {
-    struct Ode<F: Fn(Vec3, f32) -> CurveDescription>(F);
+    struct Ode<F: Fn(DVec3, f64) -> CurveDescription>(F);
 
-    impl<F: Fn(Vec3, f32) -> CurveDescription> fast_ode::DifferentialEquation<6> for Ode<F> {
+    impl<F: Fn(DVec3, f64) -> CurveDescription> fast_ode::DifferentialEquation<6> for Ode<F> {
         fn ode_dot_y(&self, t: f64, ty: &Coord<6>) -> (Coord<6>, bool) {
             let [x, y, z, _, _, _] = ty.0;
-            let normal = Vec3::new(x as f32, y as f32, z as f32);
-            let descriptor = (self.0)(normal, t as f32);
+            let normal = DVec3::new(x, y, z);
+            let descriptor = (self.0)(normal, t);
 
             let [_, _, _, _cx, _cy, k] = ty.0;
             let [x, y, z] = descriptor.dt_normal.to_array().map(f64::from);
@@ -244,7 +262,7 @@ pub fn curve_ode_with_curvature(
     };
 
     let Coord([x, y, z, fx, fy, k]) = x1;
-    let normal = Vec3::from_array([x, y, z].map(|v| v as f32));
+    let normal = DVec3::from_array([x, y, z]);
 
     // The horizontal must be perpendicular to the plane normal and its derivative.
     // We are however free to choose a direction, let us pick a consistent one.
@@ -257,9 +275,9 @@ pub fn curve_ode_with_curvature(
     };
 
     CurveSegment {
-        flat_position: Vec2::from_array([fx, fy].map(|v| v as f32)),
+        flat_position: DVec2::from_array([fx, fy]),
         // We do not build a full frame..
-        flat_direction: k as f32,
+        flat_direction: k,
         flat_curvature: end_descriptor.curvature_to_normal(normal),
         ..basis
     }
