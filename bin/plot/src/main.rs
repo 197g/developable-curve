@@ -1,7 +1,7 @@
 use std::io::{self, Read as _, Write as _};
 
 use clap::Parser;
-use dc_curves::{Curve as _, DenormalTangentFrame, normal_and_tan_ode, stitch};
+use dc_curves::{Curve as _, DenormalTangentFrame, SurfaceNormal, normal_and_tan_ode, stitch};
 use dc_export::svg;
 use dc_integral::{CurveSegment, curve_ode_with_curvature};
 use glam::Vec3;
@@ -45,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let ode = normal_and_tan_ode(&first, |_| 0.0);
-    let mut start = CurveSegment::initial(Vec3::from_array(input.normal).as_dvec3(), ode);
+    let mut start = CurveSegment::initial(SurfaceNormal::from_array(input.normal), ode);
 
     let mut segments: Vec<(DenormalTangentFrame, CurveSegment)> = vec![];
 
@@ -60,7 +60,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let end_of_prev = start;
             (start, first_parameter) = stitch(end_of_prev, &curve);
             assert_eq!(start.normal, end_of_prev.normal);
-            assert!(start.horizontal.angle_between(end_of_prev.horizontal) < 1.0e-6);
+            assert!(start.ruling.angle_between(end_of_prev.ruling) < 1.0e-6);
         } else {
             first_parameter = 0.0;
         }
@@ -144,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let obj = dc_export::obj::ObjConfig {
         tangent_scale: None,
-        normalize_horizontal: true,
+        normalize_ruling: true,
         comment: Some(cfg_data),
         ..Default::default()
     };

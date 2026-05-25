@@ -45,7 +45,7 @@ pub fn curve_ode(
 #[derive(Clone, Copy)]
 pub struct CurveSegment {
     pub normal: SurfaceNormal,
-    pub horizontal: DVec3,
+    pub ruling: DVec3,
     pub flat_position: DVec2,
     pub flat_direction: f64,
     pub flat_curvature: f64,
@@ -59,27 +59,27 @@ fn warn_nonzero(actual: f64, what: &str) {
 }
 
 impl CurveSegment {
-    pub fn initial(normal: DVec3, ode: impl Fn(DVec3, f64) -> CurveDescription) -> Self {
-        let descriptor = ode(normal, 0.0);
+    pub fn initial(normal: SurfaceNormal, ode: impl Fn(DVec3, f64) -> CurveDescription) -> Self {
+        let descriptor = ode(normal.axis, 0.0);
 
         if let Some(angle) = descriptor.angle {
-            Self::from_angle(normal, descriptor, angle)
+            Self::from_angle(normal.axis, descriptor, angle)
         } else {
-            Self::from_parameter_with_unstable_angle_at_zero(normal, descriptor)
+            Self::from_parameter_with_unstable_angle_at_zero(normal.axis, descriptor)
         }
     }
 
     fn from_angle(normal: DVec3, frame: CurveDescription, target_angle: f64) -> Self {
-        let horizontal = frame
-            .tangent
-            .rotate_axis(normal.normalize(), target_angle)
-            .normalize();
+        let forward = frame.tangent.normalize();
+        let sideways = normal.cross(forward);
+        let (s, c) = target_angle.sin_cos();
 
+        let ruling = c * forward + s * sideways;
         let angle = target_angle;
 
-        warn_nonzero(horizontal.dot(frame.dt_normal), "horizontal to dt normal");
+        warn_nonzero(ruling.dot(frame.dt_normal), "ruling to dt normal");
         warn_nonzero(frame.tangent.dot(normal), "normal to tangent");
-        warn_nonzero(horizontal.dot(normal), "normal to horizontal");
+        warn_nonzero(ruling.dot(normal), "normal to ruling");
 
         assert!(
             (normal.dot(frame.dt_tangent) + frame.dt_normal.dot(frame.tangent)).abs() < 1e-8,
@@ -90,7 +90,7 @@ impl CurveSegment {
 
         CurveSegment {
             normal: SurfaceNormal { axis: normal },
-            horizontal,
+            ruling,
             flat_position: Default::default(),
             flat_direction: Default::default(),
             flat_curvature: 0.0,
@@ -102,31 +102,32 @@ impl CurveSegment {
         normal: DVec3,
         end_descriptor: CurveDescription,
     ) -> Self {
-        let pre_horizontal = end_descriptor.dt_normal.cross(normal);
+        // The ruling is orthogonal to both.
+        let pre_ruling = normal.cross(end_descriptor.dt_normal);
 
-        // Solve (dt pre_horizontal) × tangent = 0
-        //   or (dt unit(pre_horizontal)) × tangent = 0
+        // Solve (dt pre_ruling) × tangent = 0
+        //   or (dt unit(pre_ruling)) × tangent = 0
         //
-        // Observe dt (unit(pre_horizontal)×tangent)
-        //   = (dt unit(pre_horizontal))×tangent + unit(pre_horizontal)×(dt tangent)
+        // Observe dt (unit(pre_ruling)×tangent)
+        //   = (dt unit(pre_ruling))×tangent + unit(pre_ruling)×(dt tangent)
         //
         // FIXME: something not right here. Choosing `v = 0` does indeed generate a cone for which
-        // the derivative of the horizontal (up to the tip) is `-tangent`. Indeed any skew cone can
-        // be developed since the derivative of the horizontal is always in the plane spanned by
-        // the tangent and the horizontal.
+        // the derivative of the ruling (up to the tip) is `-tangent`. Indeed any skew cone can
+        // be developed since the derivative of the ruling is always in the plane spanned by
+        // the tangent and the ruling.
         //
-        // We have (dt unit(pre_horizontal))×tangent = 0 iff
-        //   dt (unit(pre_horizontal)×tangent) = unit(pre_horizontal)×(dt tangent)
+        // We have (dt unit(pre_ruling))×tangent = 0 iff
+        //   dt (unit(pre_ruling)×tangent) = unit(pre_ruling)×(dt tangent)
         //
         // On the left: dt (||tangent|| normal)
         //   = (dt ||tangent||) normal + ||tangent|| dt normal
         //
-        // On the right: unit(pre_horizontal)×(dt tangent)
-        //   = unit(pre_horizontal)×(dt ||tangent|| unit(frame.tangent) + ||tangent|| frame.normal)
-        //   = (dt ||tangent||) normal + ||tangent|| unit(pre_horizontal)×frame.normal
+        // On the right: unit(pre_ruling)×(dt tangent)
+        //   = unit(pre_ruling)×(dt ||tangent|| unit(frame.tangent) + ||tangent|| frame.normal)
+        //   = (dt ||tangent||) normal + ||tangent|| unit(pre_ruling)×frame.normal
         //
-        // So we have … iff ||tangent|| dt normal = ||tangent|| unit(pre_horizontal)×frame.normal
-        //   iff dt normal = unit(pre_horizontal)×frame.normal
+        // So we have … iff ||tangent|| dt normal = ||tangent|| unit(pre_ruling)×frame.normal
+        //   iff dt normal = unit(pre_ruling)×frame.normal
         //   iff dt normal = unit(|sign|·normal×dt normal)×frame.normal
         //   iff dt normal = |sign|(normal×dt normal)×frame.normal / ||dt normal||
         //   iff dt normal = |sign|((normal·frame.normal) dt normal - (dt normal·frame.normal) normal) / ||dt normal||
@@ -141,34 +142,34 @@ impl CurveSegment {
         // There is probably a cheaper way to get this, do not pass the whole frame. Or do we?
         let signum = end_descriptor
             .tangent
-            .cross(pre_horizontal)
+            .cross(pre_ruling)
             .dot(normal)
             .signum();
 
-        // Note: `<horizontal, frame.tangent> = v · ||frame.tangent||`
+        // Note: `<ruling, frame.tangent> = v · ||frame.tangent||`
         //
         // if you want to control this angle. Expanded:
         //
-        // cos(horizontal, frame.tangent) · ||horizontal|| · ||frame.tangent||
-        //     = <horizontal, frame.tangent>
+        // cos(ruling, frame.tangent) · ||ruling|| · ||frame.tangent||
+        //     = <ruling, frame.tangent>
         //     = v · ||frame.tangent||
         //
-        // v = cos(horizontal, frame.tangent) · ||horizontal||
-        //     = cos(horizontal, frame.tangent) · ||dt normal||
-        //     = cos(horizontal, frame.tangent) · sqrt(v² + <normal, frame.derivative>²)
+        // v = cos(ruling, frame.tangent) · ||ruling||
+        //     = cos(ruling, frame.tangent) · ||dt normal||
+        //     = cos(ruling, frame.tangent) · sqrt(v² + <normal, frame.derivative>²)
         //
-        // angle(horizontal, frame.tangent) = acos(v / sqrt(v² + <normal, frame.derivative>²))
+        // angle(ruling, frame.tangent) = acos(v / sqrt(v² + <normal, frame.derivative>²))
         //     = atan(|<normal, frame.derivative>| / v) ; by acos(x) = atan(sqrt(1-x²)/x)
         //     = atan2(|<normal, frame.derivative>|, v)
         //
         // So we have a discontinuity. If the normal is perpendicular to `frame.derivative` then the
         // `cos(angle) = +1/-1` so the two are parallel with no steering at all. Otherwise, we can
-        // choose `v = 0` for a guaranteed tangent-perpendicular horizontal line or any other
+        // choose `v = 0` for a guaranteed tangent-perpendicular ruling line or any other
         // non-parallel angle with appropriate `v`.
         //
         // So now you're asking, can we control `v` so that the discontinuity never occurs? Not in
         // general if the frame.derivative is discontinuous. But also consider this an artifact of our
-        // choice of horizontal, the direction of which is discontinuous at the zero of `dt_normal`.
+        // choice of ruling, the direction of which is discontinuous at the zero of `dt_normal`.
         // And indeed at the same point we get a length of `0|v=0`. So really we should maybe instead
         // be steering by the angle; and then calculating a corresponding `v` while having `v=0` and
         // using our angle regardless at the discontinuity?
@@ -182,17 +183,16 @@ impl CurveSegment {
         // probably the signum itself, too. We could calculate `v` and the rest of this would fall out
         // from atan2. But also if we were handed the angle then we could avoid the ill-defined
         // calculation for that point entirely. Maybe having the angle as a parameter to the ODE is
-        // better after all and calculate horizontal as rotateAround(normal, angle).rotate(tangent)
+        // better after all and calculate ruling as rotateAround(normal, angle).rotate(tangent)
         // which I assume should itself simplify (TBD).
-        let angle = pre_horizontal.angle_between(end_descriptor.tangent) * signum;
 
-        // Make this the right-hand coordinate system instead (tangent, horizontal, normal). This makes
-        // it compatible with the curvature calculation.
-        let horizontal = pre_horizontal * signum;
+        let ruling = pre_ruling * signum;
+        // `angle_between` measures absolute angle and we want a signed one.
+        let angle = ruling.angle_between(end_descriptor.tangent) * signum;
 
         CurveSegment {
             normal: SurfaceNormal { axis: normal },
-            horizontal,
+            ruling,
             flat_position: Default::default(),
             flat_direction: Default::default(),
             flat_curvature: 0.0,
@@ -219,7 +219,6 @@ pub fn curve_ode_with_curvature(
             let [x, y, z] = descriptor.dt_normal.to_array().map(f64::from);
 
             let speed = f64::from(descriptor.tangent.length());
-
             let curvature = descriptor.curvature_to_normal(normal);
             // The unit speed curvature but `t` is not unit speed.
             let dkds = f64::from(curvature) * speed;
@@ -264,7 +263,7 @@ pub fn curve_ode_with_curvature(
     let Coord([x, y, z, fx, fy, k]) = x1;
     let normal = DVec3::from_array([x, y, z]);
 
-    // The horizontal must be perpendicular to the plane normal and its derivative.
+    // The ruling must be perpendicular to the plane normal and its derivative.
     // We are however free to choose a direction, let us pick a consistent one.
     let end_descriptor = (ode.0)(normal, end);
 

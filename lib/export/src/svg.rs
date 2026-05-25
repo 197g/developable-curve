@@ -5,6 +5,10 @@ use core::fmt::Write as _;
 use dc_integral::CurveSegment;
 use dc_theory::DenormalTangentFrame;
 
+/// Convert to an SVG.
+///
+/// The SVG coordinate space is left-handed since (0, 0) is top-left and increases right and down.
+/// Since we do like a good right handed one instead we switch x and y.
 pub fn to_svg(
     curve: &[(DenormalTangentFrame, CurveSegment)],
     to_mm: f32,
@@ -27,12 +31,12 @@ pub fn to_svg(
     // the viewBox itself.
     let scale = 400.0;
 
-    let [rx, ry] = [
+    let [ry, rx] = [
         (max[0] - min[0]).max(5.) * scale,
         (max[1] - min[1]).max(5.) * scale,
     ];
 
-    let [mx, my] = [min[0] * scale, min[1] * scale];
+    let [my, mx] = [min[0] * scale, min[1] * scale];
 
     let width_mm = f64::from(to_mm) * rx / scale;
     let height_mm = f64::from(to_mm) * ry / scale;
@@ -51,13 +55,13 @@ pub fn to_svg(
         if let Some((_, first)) = curve.first() {
             let [x, y] = first.flat_position.to_array();
             let [x, y] = [x, y].map(|x| x * scale);
-            write!(&mut string, "M {x:.4} {y:.4} ")?;
+            write!(&mut string, "M {y:.4} {x:.4} ")?;
         }
 
         for (_, segment) in curve.get(1..).into_iter().flatten() {
             let [x, y] = segment.flat_position.to_array();
             let [x, y] = [x, y].map(|x| x * scale);
-            write!(&mut string, "L {x:.4} {y:.4} ")?;
+            write!(&mut string, "L {y:.4} {x:.4} ")?;
         }
 
         writeln!(&mut string, r#"" stroke="black" fill="transparent" />"#)?;
@@ -78,7 +82,7 @@ pub fn to_svg(
 
             writeln!(
                 &mut string,
-                r#"  <path d="M {x} {y} l {dx} {dy}" stroke="black" fill="transparent" />"#
+                r#"  <path d="M {y} {x} l {dy} {dx}" stroke="black" fill="transparent" />"#
             )?;
         }
 

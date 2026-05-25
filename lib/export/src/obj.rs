@@ -7,7 +7,7 @@ use dc_theory::DenormalTangentFrame;
 pub struct ObjConfig {
     pub tangent_scale: Option<f32>,
     pub normal_scale: f32,
-    pub normalize_horizontal: bool,
+    pub normalize_ruling: bool,
     /// Rescales the model to a 3d printer build plate.
     pub buildplate_mm: f32,
     pub comment: Option<String>,
@@ -18,7 +18,7 @@ impl Default for ObjConfig {
         Self {
             tangent_scale: Some(1.0),
             normal_scale: 1.0,
-            normalize_horizontal: false,
+            normalize_ruling: false,
             buildplate_mm: 180.,
             comment: None,
         }
@@ -76,7 +76,7 @@ pub fn to_obj_with(
     let normal_scale = f64::from(cfg.normal_scale);
 
     // Print optimized: 180mm build plate.
-    let horizontal_scale = 1.0f64;
+    let ruling_scale = 1.0f64;
     let model_scale = f64::from(cfg.buildplate_mm) / model_bounds;
 
     let write_frame = cfg.tangent_scale.is_some();
@@ -88,14 +88,14 @@ pub fn to_obj_with(
 
         let radius_of_curvature = (1.1 * segment.flat_curvature).max(1.0).recip();
 
-        let [hx, hy, hz] = if cfg.normalize_horizontal {
+        let [hx, hy, hz] = if cfg.normalize_ruling {
             segment
-                .horizontal
+                .ruling
                 .normalize_or_zero()
                 .to_array()
-                .map(|x| x * horizontal_scale.min(radius_of_curvature))
+                .map(|x| x * ruling_scale.min(radius_of_curvature))
         } else {
-            segment.horizontal.to_array().map(|x| x * horizontal_scale)
+            segment.ruling.to_array().map(|x| x * ruling_scale)
         };
 
         writeln!(
@@ -146,7 +146,7 @@ pub fn to_obj_with(
         let next_normal = normal + 1;
         let base = i * vertices_per_frame + 1;
 
-        // Let's make sure this is the right way up. Each horizontal, tangent, normal triple is
+        // Let's make sure this is the right way up. Each ruling, tangent, normal triple is
         // right handed in that order.
         writeln!(
             &mut string,
@@ -159,7 +159,7 @@ pub fn to_obj_with(
     }
 
     if write_frame {
-        // And line elements for the tangents, normals and horizontals.
+        // And line elements for the tangents, normals and ruling.
         for i in 0..curve.len() {
             let base = i * vertices_per_frame + 1;
             writeln!(&mut string, "l {} {}", base, base + 2)?; // tangent

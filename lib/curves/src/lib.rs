@@ -46,8 +46,8 @@ pub fn normal_and_flat_ode(
     }
 }
 
-/// Steer the surface and horizontal direction by defining an angle between the tangent and
-/// horizontal direction along the curve.
+/// Steer the surface and ruling direction by defining an angle between the tangent and
+/// ruling direction along the curve.
 pub fn normal_and_tan_ode(
     curve: impl Curve,
     // Provides intended `angle` at a point `t` on the curve where `0` is orthogonal to the left
@@ -60,8 +60,21 @@ pub fn normal_and_tan_ode(
 
         // Set so that 0 refers to the same side as the 0 of the other parameterization.
         let target_angle = f64::from(parameter(t as f32)) + std::f64::consts::PI * 0.5;
+        // The direction of the ruling within the tangent plane gives us a unit vector based on
+        // the coefficients hs, hc = target_angle.sin_cos() as
+        //
+        //     ruling = hc·unit_tangent + hs·derivative_free.
+        //     dt_normal = a·unit_tangent + b·derivative_free
+        //
+        // Since the ruling is orthogonal to the tangent derivative this derives one linear
+        // equation for the tangent derivative: <dt_normal, tangent> = -<normal, dt_tangent>
+        //
+        //      a = -<normal, frame.derivative> / ||tangent||
+        //      b · hs = - a · hc
+        //
+        // b = -a / target_angle.tan()
 
-        // angle(horizontal, frame.tangent) = atan2(<normal, frame.derivative>, lambda)
+        // angle(ruling, frame.tangent) = atan2(<normal, frame.derivative>, lambda)
         //
         // See `dc-integral/src/lib.rs` for the derivation of this formula where lambda is the
         // parameter from the above formula. Now let's derive that lambda. Note how we
@@ -70,24 +83,14 @@ pub fn normal_and_tan_ode(
         let tan_angle = target_angle.tan();
 
         let angle_or_zero = if tan_angle == 0.0 {
-            1e-6
-        } else if tan_angle.abs() < 1e-6 {
-            1e-6 * tan_angle.signum()
+            1e-9
+        } else if tan_angle.abs() < 1e-9 {
+            1e-9 * tan_angle.signum()
         } else {
             tan_angle
         };
 
-        let lambda = dev.normal.dot(frame.derivative).abs() / angle_or_zero;
-
-        // Note this may get the sign of the parameter incorrect. Now look at the direction of the
-        // surface development to determine the right sign. For using the existing sign, tangent,
-        // dir, normal should form a right-handed system. The curve has a 'signum' already but that
-        // is for the tangent normal system.
-        let signum = dev
-            .normal
-            .cross(frame.tangent)
-            .dot(dev.derivative_free)
-            .signum();
+        let b = -dev.normal.dot(frame.derivative) / angle_or_zero;
 
         // ^ LLM anecdote: oneshot incorrectly. Previously believed to be correct though but it
         // multiplied instead of divided. Stupid machine, stupid me for trusting it too much and
@@ -95,7 +98,7 @@ pub fn normal_and_tan_ode(
         //
         // It badly fumbled the derivation itself already, forgetting the square root in the
         // cos(x)-identity or forgetting that subtract `1` changes the numerator..
-        let dt_normal = dev.derivative_base + lambda * signum * dev.derivative_free;
+        let dt_normal = dev.derivative_base + b * dev.derivative_free;
         let dt_normalized = frame.tangent.normalize();
 
         CurveDescription {
@@ -109,17 +112,17 @@ pub fn normal_and_tan_ode(
 }
 
 pub fn stitch(end: CurveSegment, curve: impl Curve) -> (CurveSegment, f32) {
-    // Determine `parameter` such that the horizontals match up (given that the normals will match
+    // Determine `parameter` such that the ruling match up (given that the normals will match
     // up as well).
     let parameter = {
         let start_frame = curve.at(0.0);
         let development = SurfaceDevelopment::from_frame_and_normal(start_frame, end.normal);
 
-        let raw_angle = end.horizontal.angle_between(development.frame.tangent);
+        let raw_angle = end.ruling.angle_between(development.frame.tangent);
         let signum = development
             .frame
             .tangent
-            .cross(end.horizontal)
+            .cross(end.ruling)
             .dot(development.normal)
             .signum();
 
@@ -127,7 +130,7 @@ pub fn stitch(end: CurveSegment, curve: impl Curve) -> (CurveSegment, f32) {
     };
 
     let ode = normal_and_tan_ode(curve, |_| parameter as f32);
-    let basis = CurveSegment::initial(end.normal.axis, ode);
+    let basis = CurveSegment::initial(end.normal, ode);
 
     let start = CurveSegment {
         flat_position: end.flat_position,

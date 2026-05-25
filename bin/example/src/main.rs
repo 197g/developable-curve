@@ -30,11 +30,11 @@ fn run_surface_along(
     // now we scan and do integration steps along the way.
     assert_eq!(points.len(), var.len());
 
-    // FIXME: this should be done internally because `horizontal` is calculated by the derivative
+    // FIXME: this should be done internally because `ruling` is calculated by the derivative
     // of the normal of the segment, so this should involve the parameter choice `v`.
     let initial = CurveSegment {
         normal: initial,
-        horizontal: Default::default(),
+        ruling: Default::default(),
         flat_position: Default::default(),
         flat_direction: 0.0,
         flat_curvature: 0.0,

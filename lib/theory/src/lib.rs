@@ -38,9 +38,6 @@ pub struct SurfaceDevelopment {
     /// Derivative is free along a line normal to the normal. Add any multiple of this to the base
     /// and you get a valid derivative.
     pub derivative_free: DVec3,
-    /// What direction is the basic frame oriented? We want to stay on a consistent size even if
-    /// the direction of the curvature flips.
-    pub signum: f32,
 }
 
 impl SurfaceDevelopment {
@@ -92,17 +89,13 @@ impl SurfaceDevelopment {
         // being the length of the tangent. (It must not vanish). The first term disappears under
         // the dot product.
         let offset = -normal.dot(frame.derivative);
-
         let base = offset / frame.tangent.length_squared() * frame.tangent;
-
-        let sign_of_curve = frame.tangent.cross(frame.derivative).dot(normal).signum();
 
         Self {
             frame,
             normal,
             derivative_base: base,
             derivative_free: dir,
-            signum: sign_of_curve as f32,
         }
     }
 }
@@ -112,7 +105,7 @@ pub struct CurveDescription {
     pub tangent: DVec3,
     pub dt_tangent: DVec3,
     pub dt_normal: DVec3,
-    /// Angle between the intended horizontal direction and the tangent. If set it must be
+    /// Angle between the intended ruling direction and the tangent. If set it must be
     /// consistent with the `dt_normal` direction and its sign determines the orientation. Please
     /// note that usually an angle of `+-90` is not possible.
     pub angle: Option<f64>,
@@ -120,54 +113,24 @@ pub struct CurveDescription {
 }
 
 impl CurveDescription {
+    #[track_caller]
     pub fn curvature_to_normal(&self, normal: DVec3) -> f64 {
-        // Projected curvature is derived from projected curve normal. We can recover the
-        // derivative of the othonormal frame of the curve first:
+        // Projected curvature is derived from projected curve normal. Note how the expression
+        // already deletes any potential contribution of a non-constant length tangent. Also note
+        // that normal is assumed to be orthonormal to the tangent.
         //
-        //     with l(x) = |frame.tangent| = <frame.tangent, frame.tangent>^(1/2) and l' = dl/dt,
-        //
-        //     The derivative of the tangent splits into a component of unit direction, and the
-        //     derivative of this unit direction vector in the direction of the normal. With `l`
-        //     being the parameterization's curve speed the 'normal' is `l` times larger than its
-        //     unit speed curve. So:
-        //
-        //     frame.derivative = (l · frame.utangent)' = l' frame.utangent + l · dt frame.utangent
-        //     <frame.tangent, frame.derivative> = l' / l <frame.tangent, frame.tangent> = l' · l
-        //
-        //     frame.derivative = l · dt frame.utangent + (<frame.tangent, frame.derivative> / l) · frame.tangent / l
-        //     frame.derivative = l · dt frame.utangent + (<frame.tangent, frame.derivative> / l²) · frame.tangent
-        //     l · dt frame.utangent = frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent
-        //
-        // We can measure the flattened curvature through the distance metric that is necessarily
-        // preserved by our projection.
-        //
-        //   ĸ = || du r × ds (du r) || = || ds (du r) || since du r is a unit vector.
-        //
-        // For a non-unit speed curve we need to find their unit-speed equivalents. In particular:
-        //
-        //     ds normal = (dt / ds) · (ds / dt) ds normal = dt normal · (dt / ds) = dt normal / l
-        //
-        //     (ds / dt) = ||frame.tangent|| = l
-        //
-        // Thusly
-        //
-        //     ds (du r) = ds (frame.utangent × normal)
-        //     = ds frame.utangent × normal + frame.utangent × ds normal
-        //     = dt frame.utangent × normal / l + frame.utangent × dt normal / l
-        //
-        //     dt frame.utangent × normal = l · dt frame.utangent × normal / l
-        //     = ((frame.derivative - (<frame.tangent, frame.derivative> / l²) · frame.tangent) × normal) / l
-        //
-        // NOTE: previously got caught in a GPT-4.1 rabbit hole. It one-shot:
-        //
-        // `kappa = (dt frame.tangent×normal) / <frame.tangent, frame.tangent>`.
-        //
-        // (without the above derivation) and used a dot instead of cross product. It did not
-        // provide any explanation at all. This however caught me caught up in ignoring the term
-        // involving the tangent at all which led to crazy curvatures where l' != 0.
-        let v = normal.cross(self.tangent) / self.tangent.length();
+        // However, note that during the ODE evaluation this is not necessarily true, the ODE is
+        // supposed to be defined over the whole R^n field.
+        if false {
+            debug_assert!(
+                self.tangent.dot(normal) < 1e-6,
+                "Non orthogonal normal: {normal:?}·{} = {}",
+                self.tangent,
+                self.tangent.dot(normal)
+            );
+        }
 
-        self.tangent.cross(normal).dot(self.dt_tangent)
+        normal.cross(self.tangent).dot(self.dt_tangent)
             / self.tangent.length_squared()
             / self.tangent.length()
     }
