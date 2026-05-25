@@ -31,18 +31,18 @@ pub fn to_svg(
     // the viewBox itself.
     let scale = 400.0;
 
-    let [ry, rx] = [
+    let [width_coord, height_coord] = [
         (max[0] - min[0]).max(5.) * scale,
         (max[1] - min[1]).max(5.) * scale,
     ];
 
-    let [my, mx] = [min[0] * scale, min[1] * scale];
+    let [mx, my] = [min[0] * scale, -max[1] * scale - 500.0];
 
-    let width_mm = f64::from(to_mm) * rx / scale;
-    let height_mm = f64::from(to_mm) * ry / scale;
+    let width_mm = f64::from(to_mm) * width_coord / scale;
+    let height_mm = f64::from(to_mm) * height_coord / scale;
 
     let mut string = format!(
-        r#"<svg version="1.1" viewBox="{mx:.4} {my:.4} {rx:.4} {ry:.4}" width="{width_mm}mm" height="{height_mm}mm" xmlns="http://www.w3.org/2000/svg" transform="scale(1,-1)" >{}</svg>"#,
+        r#"<svg version="1.1" viewBox="{mx:.4} {my:.4} {width_coord:.4} {height_coord:.4}" width="{width_mm}mm" height="{height_mm}mm" xmlns="http://www.w3.org/2000/svg" >{}</svg>"#,
         "\n",
     );
 
@@ -54,23 +54,23 @@ pub fn to_svg(
 
         if let Some((_, first)) = curve.first() {
             let [x, y] = first.flat_position.to_array();
-            let [x, y] = [x, y].map(|x| x * scale);
-            write!(&mut string, "M {y:.4} {x:.4} ")?;
+            let [x, y] = [x * scale, -y * scale];
+            write!(&mut string, "M {x:.4} {y:.4} ")?;
         }
 
         for (_, segment) in curve.get(1..).into_iter().flatten() {
             let [x, y] = segment.flat_position.to_array();
-            let [x, y] = [x, y].map(|x| x * scale);
-            write!(&mut string, "L {y:.4} {x:.4} ")?;
+            let [x, y] = [x * scale, -y * scale];
+            write!(&mut string, "L {x:.4} {y:.4} ")?;
         }
 
-        writeln!(&mut string, r#"" stroke="black" fill="transparent" />"#)?;
+        writeln!(&mut string, r#"" stroke="black" fill-opacity="0.0" />"#)?;
 
         for (_, segment) in curve.get(1..).into_iter().flatten() {
             let radius_of_curvature = (1.1 * segment.flat_curvature).max(1.0).recip();
 
             let [x, y] = segment.flat_position.to_array();
-            let [x, y] = [x, y].map(|x| x * scale);
+            let [x, y] = [x * scale, -y * scale];
 
             let (dir_y, dir_x) = segment.flat_direction.sin_cos();
             let angle_rotation = glam::DVec2::from_angle(segment.angle);
@@ -79,10 +79,11 @@ pub fn to_svg(
                 .to_array();
 
             let [dx, dy] = [dir_x, dir_y].map(|x| x * radius_of_curvature * scale);
+            let [dx, dy] = [dx, -dy];
 
             writeln!(
                 &mut string,
-                r#"  <path d="M {y} {x} l {dy} {dx}" stroke="black" fill="transparent" />"#
+                r#"  <path d="M {x} {y} l {dx} {dy}" stroke="black" fill="transparent" />"#
             )?;
         }
 

@@ -103,48 +103,13 @@ impl CurveSegment {
         end_descriptor: CurveDescription,
     ) -> Self {
         // The ruling is orthogonal to both.
-        let pre_ruling = normal.cross(end_descriptor.dt_normal);
+        let ruling = normal.cross(end_descriptor.dt_normal);
 
-        // Solve (dt pre_ruling) × tangent = 0
-        //   or (dt unit(pre_ruling)) × tangent = 0
-        //
-        // Observe dt (unit(pre_ruling)×tangent)
-        //   = (dt unit(pre_ruling))×tangent + unit(pre_ruling)×(dt tangent)
-        //
-        // FIXME: something not right here. Choosing `v = 0` does indeed generate a cone for which
-        // the derivative of the ruling (up to the tip) is `-tangent`. Indeed any skew cone can
-        // be developed since the derivative of the ruling is always in the plane spanned by
-        // the tangent and the ruling.
-        //
-        // We have (dt unit(pre_ruling))×tangent = 0 iff
-        //   dt (unit(pre_ruling)×tangent) = unit(pre_ruling)×(dt tangent)
-        //
-        // On the left: dt (||tangent|| normal)
-        //   = (dt ||tangent||) normal + ||tangent|| dt normal
-        //
-        // On the right: unit(pre_ruling)×(dt tangent)
-        //   = unit(pre_ruling)×(dt ||tangent|| unit(frame.tangent) + ||tangent|| frame.normal)
-        //   = (dt ||tangent||) normal + ||tangent|| unit(pre_ruling)×frame.normal
-        //
-        // So we have … iff ||tangent|| dt normal = ||tangent|| unit(pre_ruling)×frame.normal
-        //   iff dt normal = unit(pre_ruling)×frame.normal
-        //   iff dt normal = unit(|sign|·normal×dt normal)×frame.normal
-        //   iff dt normal = |sign|(normal×dt normal)×frame.normal / ||dt normal||
-        //   iff dt normal = |sign|((normal·frame.normal) dt normal - (dt normal·frame.normal) normal) / ||dt normal||
-        //
-        // Note that for dt normal = <normal, frame.derivative>·unit(frame.tangent)
-        //   dt normal · frame.normal = frame.tangent·frame.normal = 0
-        //   ||dt normal|| = |<normal, frame.derivative>| = |<normal, frame.normal>|
-        //
-        // FIXME: ugh, there is this sign on the lhs and an absolute on the RHS. wat. Does this
-        // next step properly get rid of it?
+        let forward = end_descriptor.tangent.normalize();
+        let sideways = normal.cross(forward);
 
-        // There is probably a cheaper way to get this, do not pass the whole frame. Or do we?
-        let signum = end_descriptor
-            .tangent
-            .cross(pre_ruling)
-            .dot(normal)
-            .signum();
+        let x = ruling.dot(forward);
+        let y = ruling.dot(sideways);
 
         // Note: `<ruling, frame.tangent> = v · ||frame.tangent||`
         //
@@ -174,21 +139,8 @@ impl CurveSegment {
         // be steering by the angle; and then calculating a corresponding `v` while having `v=0` and
         // using our angle regardless at the discontinuity?
 
-        // I would prefer an acos2 with semantics
-        //     (cos(a)·||A||·||B||, ||A||·||B||) -> arccos(a)
-        // but this is good enough for now–we get to manually do the atan transform and it works out
-        // cleaner.
-        //
-        // FIXME: if we were handed `derivative_free` we could avoid this angle calculation and
-        // probably the signum itself, too. We could calculate `v` and the rest of this would fall out
-        // from atan2. But also if we were handed the angle then we could avoid the ill-defined
-        // calculation for that point entirely. Maybe having the angle as a parameter to the ODE is
-        // better after all and calculate ruling as rotateAround(normal, angle).rotate(tangent)
-        // which I assume should itself simplify (TBD).
-
-        let ruling = pre_ruling * signum;
-        // `angle_between` measures absolute angle and we want a signed one.
-        let angle = ruling.angle_between(end_descriptor.tangent) * signum;
+        // The angle as measured by its 2D projections. (Suggested by Gemini).
+        let angle = y.atan2(x);
 
         CurveSegment {
             normal: SurfaceNormal { axis: normal },

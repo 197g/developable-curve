@@ -90,7 +90,8 @@ pub fn normal_and_tan_ode(
             tan_angle
         };
 
-        let b = -dev.normal.dot(frame.derivative) / angle_or_zero;
+        let a = -dev.normal.dot(frame.derivative) / frame.tangent.length();
+        let b = a / angle_or_zero;
 
         // ^ LLM anecdote: oneshot incorrectly. Previously believed to be correct though but it
         // multiplied instead of divided. Stupid machine, stupid me for trusting it too much and
