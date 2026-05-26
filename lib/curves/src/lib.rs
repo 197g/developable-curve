@@ -41,7 +41,6 @@ pub fn normal_and_flat_ode(
             dt_tangent: dev.frame.derivative,
             dt_normal,
             angle: None,
-            dt_normal_normalized: None,
         }
     }
 }
@@ -91,7 +90,7 @@ pub fn normal_and_tan_ode(
         };
 
         let a = -dev.normal.dot(frame.derivative) / frame.tangent.length();
-        let b = a / angle_or_zero;
+        let b = -a / angle_or_zero;
 
         // ^ LLM anecdote: oneshot incorrectly. Previously believed to be correct though but it
         // multiplied instead of divided. Stupid machine, stupid me for trusting it too much and
@@ -100,14 +99,12 @@ pub fn normal_and_tan_ode(
         // It badly fumbled the derivation itself already, forgetting the square root in the
         // cos(x)-identity or forgetting that subtract `1` changes the numerator..
         let dt_normal = dev.derivative_base + b * dev.derivative_free;
-        let dt_normalized = frame.tangent.normalize();
 
         CurveDescription {
             tangent: dev.frame.tangent,
             dt_tangent: dev.frame.derivative,
             dt_normal,
             angle: Some(target_angle),
-            dt_normal_normalized: Some(dt_normalized.normalize()),
         }
     }
 }

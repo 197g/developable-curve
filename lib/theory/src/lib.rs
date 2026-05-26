@@ -109,7 +109,6 @@ pub struct CurveDescription {
     /// consistent with the `dt_normal` direction and its sign determines the orientation. Please
     /// note that usually an angle of `+-90` is not possible.
     pub angle: Option<f64>,
-    pub dt_normal_normalized: Option<DVec3>,
 }
 
 impl CurveDescription {
