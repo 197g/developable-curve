@@ -1,7 +1,12 @@
 use dc_integral::CurveSegment;
 use glam::{DVec3, Vec3};
 
+mod spiral;
+mod spline;
+
 pub use dc_theory::*;
+pub use spline::BezierSpline;
+pub use spiral::Spiral;
 
 pub trait Curve {
     fn at(&self, t: f32) -> DenormalTangentFrame;
@@ -47,7 +52,7 @@ pub fn normal_and_flat_ode(
 
 /// Steer the surface and ruling direction by defining an angle between the tangent and
 /// ruling direction along the curve.
-pub fn normal_and_tan_ode(
+pub fn normal_and_angle_ode(
     curve: impl Curve,
     // Provides intended `angle` at a point `t` on the curve where `0` is orthogonal to the left
     // side of the tangent in the normal plane.
@@ -127,7 +132,7 @@ pub fn stitch(end: CurveSegment, curve: impl Curve) -> (CurveSegment, f32) {
         signum * raw_angle - std::f64::consts::PI * 0.5
     };
 
-    let ode = normal_and_tan_ode(curve, |_| parameter as f32);
+    let ode = normal_and_angle_ode(curve, |_| parameter as f32);
     let basis = CurveSegment::initial(end.normal, ode);
 
     let start = CurveSegment {
@@ -151,89 +156,12 @@ impl Curve for Circle {
         let base = DVec3::new(t.cos(), t.sin(), 0.0) * f64::from(self.radius);
         let tangent = DVec3::new(-t.sin(), t.cos(), 0.0) * f64::from(self.radius);
         let derivative = DVec3::new(-t.cos(), -t.sin(), 0.0) * f64::from(self.radius);
-        let binormal = DVec3::new(0.0, 0.0, 1.0);
 
         DenormalTangentFrame {
             base,
             tangent,
             derivative,
-            binormal,
-        }
-    }
-}
-
-pub struct BezierSpline<const N: usize> {
-    /// The points the curve should pass through.
-    pub points: [Vec3; N],
-}
-
-impl Curve for BezierSpline<2> {
-    fn at(&self, t: f32) -> DenormalTangentFrame {
-        let p0 = self.points[0];
-        let p1 = self.points[1];
-
-        let base = p0.lerp(p1, t).as_dvec3();
-        let tangent = (p1 - p0).as_dvec3();
-        let derivative = DVec3::ZERO;
-        let binormal = DVec3::ZERO;
-
-        DenormalTangentFrame {
-            base,
-            tangent,
-            derivative,
-            binormal,
-        }
-    }
-}
-
-impl Curve for BezierSpline<3> {
-    fn at(&self, t: f32) -> DenormalTangentFrame {
-        let p0 = self.points[0];
-        let p1 = self.points[1];
-        let p2 = self.points[2];
-
-        let base = p0 * (1.0 - t).powi(2) + p1 * 2.0 * (1.0 - t) * t + p2 * t.powi(2);
-        let tangent = (p1 - p0) * 2.0 * (1.0 - t) + (p2 - p1) * 2.0 * t;
-        let derivative = (p2 - 2.0 * p1 + p0) * 2.0;
-        let binormal = DVec3::ZERO;
-
-        DenormalTangentFrame {
-            base: base.as_dvec3(),
-            tangent: tangent.as_dvec3(),
-            derivative: derivative.as_dvec3(),
-            binormal,
-        }
-    }
-}
-
-// This is where it gets interesting, this curve may have a curl.
-impl Curve for BezierSpline<4> {
-    fn at(&self, t: f32) -> DenormalTangentFrame {
-        let p0 = self.points[0];
-        let p1 = self.points[1];
-        let p2 = self.points[2];
-        let p3 = self.points[3];
-
-        // TODO: this is a stupid way of evaluating this.
-        let base = p0 * (1.0 - t).powi(3)
-            + p1 * 3.0 * (1.0 - t).powi(2) * t
-            + p2 * 3.0 * (1.0 - t) * t.powi(2)
-            + p3 * t.powi(3);
-        let tangent = (p1 - p0) * 3.0 * (1.0 - t).powi(2)
-            + (p2 - p1) * 6.0 * (1.0 - t) * t
-            + (p3 - p2) * 3.0 * t.powi(2);
-        let derivative = (p2 - 2.0 * p1 + p0) * 6.0 * (1.0 - t) + (p3 - 2.0 * p2 + p1) * 6.0 * t;
-
-        // At first gpt-41 said this was `0`, but that is only the case for `t=0` and `t=1`. The
-        // binormal is the derivative of the derivative, which is a constant in this case.
-        // ^ This is its own autocomplete when I removed the line. LMAO.
-        let binormal = (p3 - 3.0 * p2 + 3.0 * p1 - p0) * 6.0;
-
-        DenormalTangentFrame {
-            base: base.as_dvec3(),
-            tangent: tangent.as_dvec3(),
-            derivative: derivative.as_dvec3(),
-            binormal: binormal.as_dvec3(),
+            third_derivative: DVec3::ZERO,
         }
     }
 }

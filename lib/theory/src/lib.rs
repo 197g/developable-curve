@@ -12,7 +12,23 @@ pub struct DenormalTangentFrame {
     /// curve is unit speed.
     pub derivative: DVec3,
     /// Describe the curl.
-    pub binormal: DVec3,
+    pub third_derivative: DVec3,
+}
+
+impl DenormalTangentFrame {
+    pub fn curl(&self) -> f64 {
+        let binormal = self.tangent.cross(self.derivative);
+        // Calculate (ĸ·v³)² via the length of this cross product
+        let speed_compensation = binormal.length_squared();
+        // Calculate det(x', x'', x''') which turns out to be curl times (ĸ·v³)².
+        // Take care of it potentially being zero if we have no curvature (implying there to be no
+        // curl as well).
+        if speed_compensation.abs() < 1e-12 {
+            0.0
+        } else {
+            binormal.dot(self.third_derivative) / speed_compensation
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

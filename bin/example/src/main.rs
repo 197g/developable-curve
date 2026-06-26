@@ -1,5 +1,5 @@
 use dc_curves::{
-    Curve, DenormalTangentFrame, SurfaceNormal, normal_and_flat_ode, normal_and_tan_ode,
+    Curve, DenormalTangentFrame, SurfaceNormal, normal_and_flat_ode, normal_and_angle_ode,
 };
 
 use dc_integral::{CurveSegment, curve_ode_with_curvature};
@@ -53,7 +53,7 @@ fn run_surface_along(
                     &tmp0 as &dyn Fn(glam::DVec3, f64) -> _
                 }
                 OdeParameterization::Angle => {
-                    tmp1 = normal_and_tan_ode(curve, |_| v);
+                    tmp1 = normal_and_angle_ode(curve, |_| v);
                     &tmp1
                 }
             };

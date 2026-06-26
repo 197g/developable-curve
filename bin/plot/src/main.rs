@@ -1,7 +1,7 @@
 use std::io::{self, Read as _, Write as _};
 
 use clap::Parser;
-use dc_curves::{Curve as _, DenormalTangentFrame, SurfaceNormal, normal_and_tan_ode, stitch};
+use dc_curves::{Curve as _, DenormalTangentFrame, SurfaceNormal, normal_and_angle_ode, stitch};
 use dc_export::svg;
 use dc_integral::{CurveSegment, curve_ode_with_curvature};
 use glam::Vec3;
@@ -22,6 +22,7 @@ pub struct Args {
 #[derive(Debug, Clone, Deserialize)]
 struct Parameterization {
     hermite: Vec<HermiteNode>,
+    spiral: Option<SpiralNode>,
     normal: [f32; 3],
     parameter: Vec<Parameter>,
 }
@@ -34,31 +35,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     io.input.read_to_string(&mut cfg_data)?;
     let input: Parameterization = miniserde::json::from_str(&cfg_data)?;
 
-    let mut splines = Vec::new();
+    let mut splines: Vec<Box<dyn dc_curves::Curve>> = Vec::new();
+
+    if let Some(params) = &input.spiral {
+        splines.push(Box::new(dc_curves::Spiral {
+            radius: params.radius,
+            pitch: params.pitch,
+        }));
+    }
+
     for [a, b] in input.hermite.array_windows::<2>() {
         let spline = a.to_bezier(b);
-        splines.push(spline);
+        splines.push(Box::new(spline));
     }
 
     let Some((first, tail)) = splines.split_first() else {
         panic!("At least two Hermite nodes are required to form a curve.")
     };
 
-    let ode = normal_and_tan_ode(&first, |_| 0.0);
+    let ode = normal_and_angle_ode(first.as_ref(), |_| 0.0);
     let mut start = CurveSegment::initial(SurfaceNormal::from_array(input.normal), ode);
 
     let mut segments: Vec<(DenormalTangentFrame, CurveSegment)> = vec![];
 
-    for (idx, (curve, _node)) in [first]
-        .into_iter()
-        .chain(tail)
-        .zip(&input.hermite)
-        .enumerate()
-    {
+    for (idx, curve) in [first].into_iter().chain(tail).enumerate() {
         let first_parameter;
         if idx != 0 {
             let end_of_prev = start;
-            (start, first_parameter) = stitch(end_of_prev, &curve);
+            (start, first_parameter) = stitch(end_of_prev, curve.as_ref());
             assert_eq!(start.normal, end_of_prev.normal);
             assert!(start.ruling.angle_between(end_of_prev.ruling) < 1.0e-6);
         } else {
@@ -126,7 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let hinterpolate = linear_interpolate((ival_start, loc), (hval_start, h));
             let next = curve_ode_with_curvature(
-                normal_and_tan_ode(&curve, hinterpolate),
+                normal_and_angle_ode(curve.as_ref(), hinterpolate),
                 iter.normal,
                 (iter.flat_position, iter.flat_direction),
                 (f64::from(ival_start), f64::from(loc)),
@@ -230,6 +234,12 @@ impl Parameter {
 struct HermiteNode {
     position: [f32; 3],
     tangent: [f32; 3],
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct SpiralNode {
+    radius: f32,
+    pitch: f32,
 }
 
 impl HermiteNode {
