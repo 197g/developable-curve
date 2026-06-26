@@ -1,7 +1,7 @@
 use std::io::{self, Read as _, Write as _};
 
 use clap::Parser;
-use dc_curves::{Curve as _, DenormalTangentFrame, SurfaceNormal, normal_and_angle_ode, stitch};
+use dc_curves::{DenormalTangentFrame, SurfaceNormal, normal_and_angle_ode, stitch};
 use dc_export::svg;
 use dc_integral::{CurveSegment, curve_ode_with_curvature};
 use glam::Vec3;
@@ -37,16 +37,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut splines: Vec<Box<dyn dc_curves::Curve>> = Vec::new();
 
-    if let Some(params) = &input.spiral {
-        splines.push(Box::new(dc_curves::Spiral {
-            radius: params.radius,
-            pitch: params.pitch,
-        }));
-    }
-
     for [a, b] in input.hermite.array_windows::<2>() {
         let spline = a.to_bezier(b);
         splines.push(Box::new(spline));
+    }
+
+    if let Some(params) = &input.spiral {
+        if let Some(last) = splines.last() {
+            let spiral = dc_curves::Spiral {
+                radius: params.radius,
+                pitch: params.pitch,
+            };
+
+            let affine = dc_curves::Affine::with_aligned(last.as_ref(), 1.0, spiral, 0.0);
+            splines.push(Box::new(affine));
+        } else {
+            splines.push(Box::new(dc_curves::Spiral {
+                radius: params.radius,
+                pitch: params.pitch,
+            }));
+        }
     }
 
     let Some((first, tail)) = splines.split_first() else {

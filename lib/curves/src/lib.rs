@@ -1,9 +1,11 @@
 use dc_integral::CurveSegment;
 use glam::{DVec3, Vec3};
 
+mod affine;
 mod spiral;
 mod spline;
 
+pub use affine::{Affine, Translate};
 pub use dc_theory::*;
 pub use spline::BezierSpline;
 pub use spiral::Spiral;
