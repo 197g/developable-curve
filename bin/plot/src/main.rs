@@ -22,7 +22,7 @@ pub struct Args {
 #[derive(Debug, Clone, Deserialize)]
 struct Parameterization {
     hermite: Vec<HermiteNode>,
-    spiral: Option<SpiralNode>,
+    nodes: Vec<Node>,
     normal: [f32; 3],
     parameter: Vec<Parameter>,
 }
@@ -42,20 +42,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         splines.push(Box::new(spline));
     }
 
-    if let Some(params) = &input.spiral {
-        if let Some(last) = splines.last() {
-            let spiral = dc_curves::Spiral {
-                radius: params.radius,
-                pitch: params.pitch,
-            };
+    for extra in input.nodes {
+        match extra {
+            Node { spiral, hermite }
+                if [spiral.is_some(), hermite.is_some()]
+                    .into_iter()
+                    .filter(|&x| x)
+                    .count()
+                    != 1 =>
+            {
+                Err("Node must be one of `spiral`, `hermite`")?;
+            }
+            Node {
+                spiral: Some(params),
+                ..
+            } => {
+                if let Some(last) = splines.last() {
+                    let spiral = dc_curves::Spiral {
+                        radius: params.radius,
+                        pitch: params.pitch,
+                    };
 
-            let affine = dc_curves::Affine::with_aligned(last.as_ref(), 1.0, spiral, 0.0);
-            splines.push(Box::new(affine));
-        } else {
-            splines.push(Box::new(dc_curves::Spiral {
-                radius: params.radius,
-                pitch: params.pitch,
-            }));
+                    let affine = dc_curves::Affine::with_aligned(last.as_ref(), 1.0, spiral, 0.0);
+                    splines.push(Box::new(affine));
+                } else {
+                    splines.push(Box::new(dc_curves::Spiral {
+                        radius: params.radius,
+                        pitch: params.pitch,
+                    }));
+                }
+            }
+            Node {
+                hermite: Some(params),
+                ..
+            } => {
+                let Some([a, b]) = params.array_windows::<2>().nth(0) else {
+                    // Basically an empty spline.
+                    continue;
+                };
+
+                let spline = a.to_bezier(b);
+                let isometry = splines.last().map(|last| {
+                    dc_curves::Affine::with_aligned(last.as_ref(), 1.0, spline, 0.0).isometry
+                });
+
+                for [a, b] in params.array_windows::<2>() {
+                    let spline = a.to_bezier(b);
+                    if let Some(isometry) = isometry {
+                        splines.push(Box::new(dc_curves::Affine {
+                            inner: spline,
+                            isometry,
+                        }));
+                    } else {
+                        splines.push(Box::new(spline));
+                    }
+                }
+            }
+            _ => unreachable!(),
         }
     }
 
@@ -250,6 +293,12 @@ struct HermiteNode {
 struct SpiralNode {
     radius: f32,
     pitch: f32,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct Node {
+    spiral: Option<SpiralNode>,
+    hermite: Option<Vec<HermiteNode>>,
 }
 
 impl HermiteNode {
