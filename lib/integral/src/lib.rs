@@ -1,7 +1,7 @@
 use fast_ode::Coord;
 use glam::{DVec2, DVec3};
 
-use dc_theory::{CurveDescription, SurfaceNormal};
+use dc_theory::{CurveDescription, DenormalTangentFrame, SurfaceNormal};
 
 pub fn curve_ode(
     tangent: impl Fn(DVec3, f64) -> DVec3,
@@ -231,5 +231,382 @@ pub fn curve_ode_with_curvature(
         flat_direction: k,
         flat_curvature: end_descriptor.curvature_to_normal(normal),
         ..basis
+    }
+}
+
+/// Start of a triangular pipe development.
+///
+/// For a simplified constructor, see in `dc-curve`.
+pub struct TrianglePipeBase {
+    pub base1: DVec3,
+    pub base2: DVec3,
+    pub opposing_normal: DVec3,
+    pub flat1: PipeFaceBase,
+    pub flat2: PipeFaceBase,
+    pub opposing_flat: PipeFaceBase,
+}
+
+/// Start of a face of [`TrianglePipeBase`].
+pub struct PipeFaceBase {
+    pub base_left: DVec2,
+    pub base_right: DVec2,
+    pub orientation_left: f64,
+    pub orientation_right: f64,
+}
+
+/// Parameterization of a triangular pipe development.
+pub struct PipeDescription {
+    pub frame: DenormalTangentFrame,
+    /// The speed of the first (in counter-clockwise order) support curve.
+    pub len_a: f64,
+    /// The speed of the first (in counter-clockwise order) support curve.
+    pub len_b: f64,
+    /// The speed of change of normal.
+    ///
+    /// FIXME: is that really a good description? Both curvatures follow from it maybe there's an
+    /// alternative parameterization with more direct control of an important property. The only
+    /// direct equivalence that we have is that `0.0` is a flat opposing face and preserves _all_
+    /// face's normals.. That's cumbersome for a lot of curves though.
+    pub yaw: f64,
+}
+
+/// End point and path sketch of a pipe development.
+pub struct TrianglePipeSegment {
+    pub pipe: PipeSegment,
+    pub flat1: PipeFaceSegment,
+    pub flat2: PipeFaceSegment,
+    pub opposing_flat: PipeFaceSegment,
+}
+
+/// The 3d description of the pipe frame itself.
+pub struct PipeSegment {
+    pub base1: DVec3,
+    pub base2: DVec3,
+    pub base: DVec3,
+}
+
+pub struct PipeFaceSegment {
+    /// The 3d normal of this face.
+    pub normal: SurfaceNormal,
+    /// The left point of the flattened representation.
+    pub base_left: DVec2,
+    /// The right point of the flattened representation.
+    pub base_right: DVec2,
+    /// The direction where the face's left flank points.
+    pub orientation_left: f64,
+    /// The direction where the face's right flank points.
+    pub orientation_right: f64,
+    /// The flat curvature of the left flank.
+    pub curvature_left: f64,
+    /// The flat curvature of the right flank.
+    pub curvature_right: f64,
+}
+
+impl TrianglePipeSegment {
+    /// Use this endpoint as the start of another segment.
+    pub fn as_next(&self) -> TrianglePipeBase {
+        TrianglePipeBase {
+            base1: self.pipe.base1,
+            base2: self.pipe.base2,
+            opposing_normal: self.opposing_flat.normal.axis,
+            flat1: self.flat1.as_next(),
+            flat2: self.flat2.as_next(),
+            opposing_flat: self.opposing_flat.as_next(),
+        }
+    }
+}
+
+impl PipeFaceSegment {
+    fn as_next(&self) -> PipeFaceBase {
+        PipeFaceBase {
+            base_left: self.base_left,
+            base_right: self.base_right,
+            orientation_left: self.orientation_left,
+            orientation_right: self.orientation_right,
+        }
+    }
+}
+
+pub fn triangle_pipe_ode(
+    tangent: impl Fn(f64) -> PipeDescription,
+    tr: TrianglePipeBase,
+    (start, end): (f64, f64),
+) -> TrianglePipeSegment {
+    struct Params {
+        /// 9: The position of each curve (A, B)
+        curves: [DVec3; 2],
+        /// 3: The orientation of F (Fa and Fb follow from dt Y)
+        opposing_normal: DVec3,
+        /// 12: The locations of 2d sides
+        flats: [[DVec2; 2]; 3],
+        // 6: The orientation of 2d sides
+        flat_orientation: [[f64; 2]; 3],
+    }
+
+    struct Ode<F: Fn(f64) -> PipeDescription>(F);
+
+    impl<F: Fn(f64) -> PipeDescription> fast_ode::DifferentialEquation<27> for Ode<F> {
+        /// See `docs/three-surface-problem.md` for derivation.
+        fn ode_dot_y(&self, t: f64, y: &Coord<27>) -> (Coord<27>, bool) {
+            let params = Params::read(y);
+            let curve = (self.0)(t);
+
+            let DenormalTangentFrame {
+                base: y,
+                tangent,
+                derivative,
+                third_derivative: _,
+            } = curve.frame;
+
+            let [a, b] = params.curves;
+
+            // The planes are spanned by the boundary curve tangent and the ruling direction.
+            let normalb = tangent.cross(b - y);
+            let normala = tangent.cross(y - a);
+
+            // From the basic theorem, the derivative of the surface normal is orthogonal to the
+            // ruling direction within the surface plane. This does not inform us of its length,
+            // which is instead constrained with the second derivative of each boundary curve.
+            let dir_dtf = (b - a).cross(params.opposing_normal).normalize_or_zero();
+            // These two normalize on their own with the coefficient below.
+            //
+            // FIXME: should use normalize_or_zero'd normala instead, see below.
+            let dir_dtfa = (a - y).cross(normala);
+            let dir_dtfb = (b - y).cross(normalb);
+
+            // The directions are in the plane of both its surfaces.
+            let dir_a = params.opposing_normal.cross(normala).normalize_or_zero();
+            let dir_b = normalb.cross(params.opposing_normal).normalize_or_zero();
+
+            let dtf = dir_dtf * curve.yaw;
+            let dta = dir_a * curve.len_a;
+            let dtb = dir_b * curve.len_b;
+
+            let dtf_dta = dtf.dot(dta);
+            let dtf_dtb = dtf.dot(dtb);
+
+            // Recall <dt F, dt Y> = -<dt² Y, F>
+            //
+            // FIXME: make this work even when the direction is orthogonal? This does not really
+            // work anyways since it implies the above cross product defining normala/b to be zero
+            // so it's moot. But we should not need it.. Maybe it cancels by substitution. Recall
+            // that both of these components are essentially triple-products and so we can rotate
+            // around the operations to find common components. Also dir_dtfa is defined by the
+            // tangent in the dot product..
+            //
+            // -<derivative,normala> / triple(tangent, a - y, tangent×(y-a))
+            // = -<derivative,normala> / <tangent×(y-a),tangent×(a-y)>
+            // = <derivative,normala>/<normala,normala>
+            //
+            // Then this is multiplied onto dir_dtfa
+            //
+            //     (a - y)×normala·<derivative,normala>/<normala,normala>
+            //     =(a - y)×(normala/||normala||)·<derivative,normala/||normala||>
+            //
+            // And now if we replace normala with its normalize_or_zero variant the problem
+            // disappears? But we do not need the value itself, only for a dot-product, so shorten
+            // further before.
+            let coeff_dtfa = -derivative.dot(normala) / dir_dtfa.dot(tangent);
+            let coeff_dtfb = -derivative.dot(normalb) / dir_dtfb.dot(tangent);
+
+            let dtfa = dir_dtfa * coeff_dtfa;
+            let dtfb = dir_dtfb * coeff_dtfb;
+
+            // What we are after is of course <dt Fa, dt A> and <dt Fb, dt B> only.
+            //
+            // That is:
+            // <dt Fa, la· F×normala> = la·coeff_dtfa·<(a - y)×normala, F×normala>
+            //
+            // But:
+            // <(a - y)×normala, F×normala>
+            // = <a-y, F>·<normala,normala>-<a-y,normala>·<normala, F>
+            // = <a-y, F>·<normala,normala>-<a-y,tangent×y-a>·<normala,F>
+            // = <a-y, F>·<normala,normala>-0·<normala,F>
+            // = <a-y, F>·<normala,normala>
+            //
+            // And hence:
+            // la·coeff_dtfa·<(a - y)×normala, F×normala>
+            // = la·<derivative,normala>/<normala,normala>·<(a - y)×normala, F×normala>
+            // = la·<derivative,normala>/<normala,normala>·<a-y, F>·<normala,normala>
+            // = la·<derivative,normala>·<a-y, F>
+            // = la·<derivative,tangent×y-a>·<a-y, F>
+            // = la·<y-a,derivative×tangent>·<a-y, F>
+            // = la·<a-y,F - derivative×tangent>
+            //
+            // Is that cleaner?
+            let dtfa_dta = dtfa.dot(dta);
+            let dtfb_dtb = dtfb.dot(dtb);
+
+            // With both coefficients <dt² A, {F,Fa}> we can calculate the cross product
+            // dt A×dt² A; as we have dt A = c0 · F×Fa it is quite simple:
+            //
+            // (F×Fa)×dt²A
+            // = F·<Fa,dt²A>-Fa·<F,dt²A>
+            // = Fa·<dtF, dtA>-F·<dtFa, dtA>
+            //
+            // With c0
+            //   = curve.len_a / ||F×Fa||
+            // (implying ||dt A|| = |curve.len_a|)
+            // (note ||F×Fa|| = sqrt(1 - dot(F, Fa)²))
+            //
+            // Anyways we want the dot-product of this with both normals. Then we have:
+            //
+            // <dtF,dtA> - <Fa,F>·<dtFa,dtA>
+            // <Fa,F>·<dtF,dtA> - <dtFa,dtA>
+
+            // Fill in all the derivatives.
+            let diff = Params {
+                curves: [dir_a * curve.len_a, dir_b * curve.len_b],
+                opposing_normal: dir_dtf * curve.yaw,
+                flats: [[DVec2::ZERO; 2]; 3],
+                flat_orientation: [[0.0; 2]; 3],
+            };
+
+            (diff.put(), true)
+        }
+    }
+
+    impl Params {
+        fn read(Coord(coeffs): &Coord<27>) -> Self {
+            let (curves, coeffs) = coeffs.split_first_chunk::<6>().unwrap();
+            let (normal, coeffs) = coeffs.split_first_chunk::<3>().unwrap();
+            let (flats, coeffs) = coeffs.split_first_chunk::<12>().unwrap();
+            let (orients, _) = coeffs.split_first_chunk::<6>().unwrap();
+
+            Params {
+                curves: {
+                    let &[a, b] = curves.as_chunks::<3>().0.as_array().unwrap();
+                    [DVec3::from_array(a), DVec3::from_array(b)]
+                },
+                opposing_normal: DVec3::from_array(*normal),
+                flats: {
+                    let &[y, a, b] = flats.as_chunks::<4>().0.as_array().unwrap();
+                    let as_starts =
+                        |[c0, c1, c2, c3]: [f64; 4]| [DVec2::new(c0, c1), DVec2::new(c2, c3)];
+                    [as_starts(y), as_starts(a), as_starts(b)]
+                },
+                flat_orientation: *orients.as_chunks::<2>().0.as_array().unwrap(),
+            }
+        }
+
+        fn put(&self) -> Coord<27> {
+            let mut c = [0.0; 27];
+
+            let coeffs = &mut c[..];
+            let (curves, coeffs) = coeffs.split_first_chunk_mut::<6>().unwrap();
+            let [a, b] = curves.as_chunks_mut::<3>().0.as_mut_array().unwrap();
+            *a = self.curves[0].to_array();
+            *b = self.curves[1].to_array();
+
+            let (normal, coeffs) = coeffs.split_first_chunk_mut::<3>().unwrap();
+            *normal = self.opposing_normal.to_array();
+
+            let (flats, coeffs) = coeffs.split_first_chunk_mut::<12>().unwrap();
+            let [y, a, b] = flats.as_chunks_mut::<4>().0.as_mut_array().unwrap();
+            let _ = (y, a, b);
+
+            let (orients, _) = coeffs.split_first_chunk_mut::<6>().unwrap();
+            *orients.as_chunks_mut::<2>().0.as_mut_array().unwrap() = self.flat_orientation;
+
+            Coord(c)
+        }
+    }
+
+    let x0 = Params {
+        curves: [tr.base1, tr.base2],
+        opposing_normal: tr.opposing_normal,
+        flats: {
+            let flat_to_pos = |fl: &PipeFaceBase| [fl.base_left, fl.base_right];
+            [
+                flat_to_pos(&tr.opposing_flat),
+                flat_to_pos(&tr.flat1),
+                flat_to_pos(&tr.flat2),
+            ]
+        },
+        flat_orientation: {
+            let flat_to_pos = |fl: &PipeFaceBase| [fl.orientation_left, fl.orientation_right];
+            [
+                flat_to_pos(&tr.opposing_flat),
+                flat_to_pos(&tr.flat1),
+                flat_to_pos(&tr.flat2),
+            ]
+        },
+    }
+    .put();
+
+    let ode = Ode(tangent);
+
+    let sol = fast_ode::solve_ivp(
+        &ode,
+        (f64::from(start), f64::from(end)),
+        x0,
+        |_, _| true,
+        1e-6,
+        1e-6,
+    );
+
+    let x1 = match sol {
+        fast_ode::IvpResult::FinalTimeReached(coord) => coord,
+        // Deserves a warning, at least!
+        fast_ode::IvpResult::StepTooSmall(_, coord) => coord,
+        fast_ode::IvpResult::OdeRequestedExit(..)
+        | fast_ode::IvpResult::CallbackRequestedExit(..) => {
+            unreachable!("we do not request exit")
+        }
+    };
+
+    let params = Params::read(&x1);
+    let end = (ode.0)(f64::from(end));
+
+    let pipe = PipeSegment {
+        base1: params.curves[0],
+        base2: params.curves[1],
+        base: end.frame.base,
+    };
+
+    const UNFINISHED: PipeFaceSegment = PipeFaceSegment {
+        normal: SurfaceNormal { axis: DVec3::X },
+        base_left: DVec2::ZERO,
+        base_right: DVec2::ZERO,
+        orientation_left: 0.0,
+        orientation_right: 0.0,
+        curvature_left: 0.0,
+        curvature_right: 0.0,
+    };
+
+    TrianglePipeSegment {
+        flat1: PipeFaceSegment {
+            normal: SurfaceNormal {
+                axis: end
+                    .frame
+                    .tangent
+                    .cross(pipe.base - pipe.base1)
+                    .normalize_or_zero(),
+            },
+            base_left: params.flats[1][0],
+            base_right: params.flats[1][1],
+            ..UNFINISHED
+        },
+        flat2: PipeFaceSegment {
+            normal: SurfaceNormal {
+                axis: end
+                    .frame
+                    .tangent
+                    .cross(pipe.base2 - pipe.base)
+                    .normalize_or_zero(),
+            },
+            base_left: params.flats[2][0],
+            base_right: params.flats[2][1],
+            ..UNFINISHED
+        },
+        opposing_flat: PipeFaceSegment {
+            normal: SurfaceNormal {
+                axis: params.opposing_normal,
+            },
+            base_left: params.flats[0][0],
+            base_right: params.flats[0][1],
+            ..UNFINISHED
+        },
+        pipe,
     }
 }
