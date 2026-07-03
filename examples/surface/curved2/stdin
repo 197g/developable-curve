@@ -1,0 +1,1 @@
+{"parameter":[{"loc":0,"h":0},{"loc":0.5,"h":0},{"loc":1.5,"h":-0.1919862175},{"loc":2.5,"h":0},{"loc":3.5,"h":0},{"loc":2.99,"h":0}],"hermite":[{"position":[1,0,0],"tangent":[0,1,0]},{"position":[0,1,0],"tangent":[-1,0,0]},{"position":[-1,0,0],"tangent":[0,-1,0]},{"position":[0,-1,0],"tangent":[1,0,0]},{"position":[1,0,0],"tangent":[0,1,0]}],"normal":[0.99,0,0.1]}
