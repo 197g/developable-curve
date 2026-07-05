@@ -24,7 +24,14 @@ struct Parameterization {
     hermite: Vec<HermiteNode>,
     nodes: Vec<Node>,
     normal: [f32; 3],
-    parameter: Vec<Parameter>,
+    parameter: Option<Vec<SurfaceParameter>>,
+    pipe: Option<PipeParameterization>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct PipeParameterization {
+    base: PipeBase,
+    develop: Vec<PipeParameter>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -102,12 +109,40 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
+    let obj = dc_export::obj::ObjConfig {
+        tangent_scale: None,
+        normalize_ruling: true,
+        comment: Some(cfg_data),
+        ..Default::default()
+    };
+
+    let results = if let Some(params) = input.parameter {
+        let normal = SurfaceNormal::from_array(input.normal);
+        extrapolate_curve(splines, normal, params, obj)?
+    } else if let Some(params) = input.pipe {
+        extrapolate_pipe(splines, params, obj)?
+    } else {
+        todo!("Proper error");
+    };
+
+    let json = miniserde::json::to_string(&results);
+    io.output.write_all(json.as_bytes())?;
+
+    Ok(())
+}
+
+fn extrapolate_curve(
+    splines: Vec<Box<dyn dc_curves::Curve>>,
+    normal: SurfaceNormal,
+    parameterization: Vec<SurfaceParameter>,
+    obj: dc_export::obj::ObjConfig,
+) -> Result<Results, Box<dyn std::error::Error>> {
     let Some((first, tail)) = splines.split_first() else {
-        panic!("At least two Hermite nodes are required to form a curve.")
+        panic!("At least one segment is required to form a curve.")
     };
 
     let ode = normal_and_angle_ode(first.as_ref(), |_| 0.0);
-    let mut start = CurveSegment::initial(SurfaceNormal::from_array(input.normal), ode);
+    let mut start = CurveSegment::initial(normal, ode);
 
     let mut segments: Vec<(DenormalTangentFrame, CurveSegment)> = vec![];
 
@@ -122,7 +157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             first_parameter = 0.0;
         }
 
-        let parameter = Parameter::extract(&input.parameter, idx);
+        let parameter = SurfaceParameter::extract(&parameterization, idx);
 
         if idx == 0 {
             segments.push((curve.at(0.0), start));
@@ -131,18 +166,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // We pad with a final (t; 1.0] evaluation in the end if that isn't present.
         let final_param_if_not_1 = parameter.last().and_then(|p| {
             if p.loc < 1.0 {
-                Some(Parameter { loc: 1.0, h: p.h })
+                Some(SurfaceParameter { loc: 1.0, h: p.h })
             } else {
                 None
             }
         });
 
-        let first_parameter = Parameter {
+        let first_parameter = SurfaceParameter {
             loc: 0.0,
             h: first_parameter,
         };
 
-        let final_param_if_empty = parameter.is_empty().then(|| Parameter {
+        let final_param_if_empty = parameter.is_empty().then(|| SurfaceParameter {
             loc: 1.0,
             h: first_parameter.h,
         });
@@ -161,7 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let n = ((end.loc - start.loc) / 0.010) as usize;
             let inner = (1..=n).map(move |i| {
                 let t = start.loc + i as f32 * (end.loc - start.loc) / n as f32;
-                Parameter {
+                SurfaceParameter {
                     loc: t,
                     h: linear_interpolate((start.loc, end.loc), (start.h, end.h))(t),
                 }
@@ -170,7 +205,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             inner.chain(std::iter::once(end))
         });
 
-        for Parameter { loc, h } in interpolate_to_p01 {
+        for SurfaceParameter { loc, h } in interpolate_to_p01 {
             // Skip duplicated nodes.
             if !(loc > ival_start) {
                 continue;
@@ -199,25 +234,163 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         start = iter;
     }
 
-    let obj = dc_export::obj::ObjConfig {
-        tangent_scale: None,
-        normalize_ruling: true,
-        comment: Some(cfg_data),
-        ..Default::default()
-    };
-
-    let obj = obj.to_obj(&segments)?;
+    let obj = obj.surface(&segments)?;
     let svg = svg::to_svg(&segments, obj.scale)?;
 
-    let results = Results {
+    Ok(Results {
         obj: obj.contents,
         svg: svg.contents,
+    })
+}
+
+fn extrapolate_pipe(
+    splines: Vec<Box<dyn dc_curves::Curve>>,
+    pipe: PipeParameterization,
+    obj: dc_export::obj::ObjConfig,
+) -> Result<Results, Box<dyn std::error::Error>> {
+    const ZERO_FLAT: dc_integral::PipeFaceBase = dc_integral::PipeFaceBase {
+        base_left: glam::DVec2::ZERO,
+        base_right: glam::DVec2::ZERO,
+        orientation_left: 0.0,
+        orientation_right: 0.0,
     };
 
-    let json = miniserde::json::to_string(&results);
-    io.output.write_all(json.as_bytes())?;
+    let Some((first, tail)) = splines.split_first() else {
+        panic!("At least one segment is required to form a curve.")
+    };
 
-    Ok(())
+    let mut start = dc_integral::TrianglePipeBase {
+        base1: Vec3::from_array(pipe.base.east).as_dvec3(),
+        base2: Vec3::from_array(pipe.base.west).as_dvec3(),
+        opposing_normal: Vec3::from_array(pipe.base.north_normal).as_dvec3(),
+        flat1: ZERO_FLAT,
+        flat2: ZERO_FLAT,
+        opposing_flat: ZERO_FLAT,
+    };
+
+    let mut segments: Vec<(DenormalTangentFrame, dc_integral::TrianglePipeBase)> = vec![];
+
+    for (idx, curve) in [first].into_iter().chain(tail).enumerate() {
+        let develop = PipeParameter::extract(&pipe.develop, idx);
+
+        if idx == 0 {
+            segments.push((curve.at(0.0), start));
+        }
+
+        let first_parameter = PipeParameter {
+            loc: 0.0,
+            relative_speed_a: 1.2,
+            relative_speed_b: 1.15,
+            yaw: 2.0 * 3.12,
+        };
+
+        // We pad with a final (t; 1.0] evaluation in the end if that isn't present.
+        let final_param_if_not_1 = develop.last().and_then(|p| {
+            if p.loc < 1.0 {
+                Some(PipeParameter {
+                    loc: 1.0,
+                    ..first_parameter
+                })
+            } else {
+                None
+            }
+        });
+
+        let final_param_if_empty = pipe.develop.is_empty().then(|| PipeParameter {
+            loc: 1.0,
+            ..first_parameter
+        });
+
+        let mut iter = start;
+        let mut ival_start = 0.0;
+        let mut hval_start = first_parameter;
+
+        let base_nodes: Vec<_> = core::iter::once(first_parameter)
+            .chain(develop.into_iter())
+            .chain(final_param_if_not_1)
+            .chain(final_param_if_empty)
+            .collect();
+
+        let interpolate_to_p01 = base_nodes.array_windows::<2>().flat_map(|&[start, end]| {
+            let n = ((end.loc - start.loc) / 0.010) as usize;
+            let inner = (1..=n).map(move |i| {
+                let t = start.loc + i as f32 * (end.loc - start.loc) / n as f32;
+                PipeParameter {
+                    loc: t,
+                    relative_speed_a: linear_interpolate(
+                        (start.loc, end.loc),
+                        (start.relative_speed_a, end.relative_speed_a),
+                    )(t),
+                    relative_speed_b: linear_interpolate(
+                        (start.loc, end.loc),
+                        (start.relative_speed_b, end.relative_speed_b),
+                    )(t),
+                    yaw: linear_interpolate((start.loc, end.loc), (start.yaw, end.yaw))(t),
+                }
+            });
+
+            inner.chain(std::iter::once(end))
+        });
+
+        for p @ PipeParameter { loc, .. } in interpolate_to_p01 {
+            // Skip duplicated nodes.
+            if !(loc > ival_start) {
+                continue;
+            }
+
+            assert!(
+                loc > 0.0 && loc <= 1.0,
+                "Parameter location must be in (0, 1]"
+            );
+
+            let hinterpolate = |h: f32| -> PipeParameter {
+                PipeParameter {
+                    loc: h,
+                    relative_speed_a: linear_interpolate(
+                        (ival_start, loc),
+                        (hval_start.relative_speed_a, p.relative_speed_a),
+                    )(h),
+                    relative_speed_b: linear_interpolate(
+                        (ival_start, loc),
+                        (hval_start.relative_speed_b, p.relative_speed_b),
+                    )(h),
+                    yaw: linear_interpolate((ival_start, loc), (hval_start.yaw, p.yaw))(h),
+                }
+            };
+
+            let next = dc_integral::triangle_pipe_ode(
+                |at: f64| {
+                    let frame = curve.at(at as f32);
+                    let params = hinterpolate(at as f32);
+
+                    dc_integral::PipeDescription {
+                        frame,
+                        len_a: frame.tangent.length() * f64::from(params.relative_speed_a),
+                        len_b: frame.tangent.length() * f64::from(params.relative_speed_b),
+                        yaw: f64::from(params.yaw),
+                    }
+                },
+                iter,
+                (f64::from(ival_start), f64::from(loc)),
+            );
+
+            segments.push((curve.at(loc), next.as_next()));
+
+            iter = next.as_next();
+            ival_start = loc;
+            hval_start = p;
+        }
+
+        start = iter;
+    }
+
+    let obj = obj.pipe(&segments)?;
+    let svg = svg::pipe(&segments, obj.scale)?;
+
+    Ok(Results {
+        obj: obj.contents,
+        svg: svg.contents,
+    })
 }
 
 struct IoResources {
@@ -261,19 +434,53 @@ fn linear_interpolate(ival: (f32, f32), hval: (f32, f32)) -> impl Fn(f32) -> f32
 }
 
 #[derive(Debug, Clone, Copy, Deserialize)]
-struct Parameter {
+struct SurfaceParameter {
     loc: f32,
     h: f32,
 }
 
-impl Parameter {
+impl SurfaceParameter {
     fn extract(this: &[Self], idx: usize) -> Vec<Self> {
         this.iter()
             .filter_map(|p| {
                 if p.loc as usize == idx {
-                    Some(Parameter {
+                    Some(SurfaceParameter {
                         loc: p.loc.fract(),
                         h: p.h,
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct PipeBase {
+    east: [f32; 3],
+    west: [f32; 3],
+    north_normal: [f32; 3],
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+struct PipeParameter {
+    loc: f32,
+    relative_speed_a: f32,
+    relative_speed_b: f32,
+    yaw: f32,
+}
+
+impl PipeParameter {
+    fn extract(this: &[Self], idx: usize) -> Vec<Self> {
+        this.iter()
+            .filter_map(|p| {
+                if p.loc as usize == idx {
+                    Some(PipeParameter {
+                        loc: p.loc.fract(),
+                        relative_speed_a: p.relative_speed_a,
+                        relative_speed_b: p.relative_speed_b,
+                        yaw: p.yaw,
                     })
                 } else {
                     None

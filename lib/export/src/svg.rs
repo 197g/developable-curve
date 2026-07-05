@@ -97,3 +97,13 @@ pub fn to_svg(
         scale: scale as f32,
     })
 }
+
+pub fn pipe(
+    _: &[(DenormalTangentFrame, dc_integral::TrianglePipeBase)],
+    scale: f32,
+) -> Result<super::StrFileData, core::fmt::Error> {
+    Ok(super::StrFileData {
+        contents: "".to_string(),
+        scale,
+    })
+}

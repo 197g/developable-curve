@@ -237,6 +237,7 @@ pub fn curve_ode_with_curvature(
 /// Start of a triangular pipe development.
 ///
 /// For a simplified constructor, see in `dc-curve`.
+#[derive(Clone, Copy)]
 pub struct TrianglePipeBase {
     pub base1: DVec3,
     pub base2: DVec3,
@@ -247,6 +248,7 @@ pub struct TrianglePipeBase {
 }
 
 /// Start of a face of [`TrianglePipeBase`].
+#[derive(Clone, Copy)]
 pub struct PipeFaceBase {
     pub base_left: DVec2,
     pub base_right: DVec2,
@@ -255,6 +257,11 @@ pub struct PipeFaceBase {
 }
 
 /// Parameterization of a triangular pipe development.
+///
+/// FIXME: this is not a very good description yet. It's technically exhaustive but the parameter
+/// _choice_ (insofar as it is one, I do not know) is really odd for physical design. Control by
+/// lengths makes it difficult to avoid an inversion of the pipe. (We could measure this as the sign
+/// of the dot-product of the tangent with the pipe cross section normal).
 pub struct PipeDescription {
     pub frame: DenormalTangentFrame,
     /// The speed of the first (in counter-clockwise order) support curve.
@@ -456,8 +463,8 @@ pub fn triangle_pipe_ode(
 
             // Fill in all the derivatives.
             let diff = Params {
-                curves: [dir_a * curve.len_a, dir_b * curve.len_b],
-                opposing_normal: dir_dtf * curve.yaw,
+                curves: [dta, dtb],
+                opposing_normal: dtf,
                 flats: [[DVec2::ZERO; 2]; 3],
                 flat_orientation: [[0.0; 2]; 3],
             };
@@ -557,6 +564,8 @@ pub fn triangle_pipe_ode(
 
     let params = Params::read(&x1);
     let end = (ode.0)(f64::from(end));
+
+    eprintln!("{:?}", params.opposing_normal);
 
     let pipe = PipeSegment {
         base1: params.curves[0],
