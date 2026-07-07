@@ -448,25 +448,67 @@ pub fn triangle_pipe_ode(
             // dt A×dt² A; as we have dt A = c0 · F×Fa it is quite simple:
             //
             // (F×Fa)×dt²A
-            // = F·<Fa,dt²A>-Fa·<F,dt²A>
+            // = F·<Fa, dt²A>-Fa·<F, dt²A>
             // = Fa·<dtF, dtA>-F·<dtFa, dtA>
             //
             // With c0
             //   = curve.len_a / ||F×Fa||
             // (implying ||dt A|| = |curve.len_a|)
-            // (note ||F×Fa|| = sqrt(1 - dot(F, Fa)²))
+            // (note ||F×Fa|| = sqrt(1 - dot(F, Fa)²), both are unit-length normals)
             //
-            // Anyways we want the dot-product of this with both normals. Then we have:
+            // Anyways we want the dot-product of this with both normals. For any `l` (but
+            // especially for `c0`):
             //
-            // <dtF,dtA> - <Fa,F>·<dtFa,dtA>
-            // <Fa,F>·<dtF,dtA> - <dtFa,dtA>
+            // <Fa, l·(F×Fa)×dt²A> = l·(<dtF,dtA> - <Fa,F>·<dtFa,dtA>)
+            // <F, l·(F×Fa)×dt²A> = l·(<Fa,F>·<dtF,dtA> - <dtFa,dtA>)
+            let faf = normala.dot(params.opposing_normal);
+            let fbf = normalb.dot(params.opposing_normal);
+
+            // FIXME: see above for simplified formula? Verify though.
+            let c0a = curve.len_a / params.opposing_normal.cross(normala).length();
+            let c0b = curve.len_b / params.opposing_normal.cross(normalb).length();
+
+            let raw_curve_at1fa = c0a * (dtf_dta - faf * dtfa_dta);
+            let raw_curve_at1f = c0a * (faf * dtf_dta - dtfa_dta);
+            let raw_curve_at2f = c0b * (fbf * dtf_dtb - dtfb_dtb);
+            let raw_curve_at2fb = c0b * (dtf_dtb - fbf * dtfb_dtb);
+
+            let base_curve = tangent.cross(derivative);
+            let raw_curve_at0fa = normala.dot(base_curve);
+            let raw_curve_at0fb = normalb.dot(base_curve);
+
+            let speed0 = tangent.length();
+            let speed1 = curve.len_a;
+            let speed2 = curve.len_b;
+
+            let speed_cor0 = 1.0 / tangent.length_squared();
+            let speed_cor1 = 1.0 / curve.len_a.powi(2);
+            let speed_cor2 = 1.0 / curve.len_b.powi(2);
+
+            // 0.0 points towards +X.
+            let orientation = |x: f64| {
+                let (s, c) = x.sin_cos();
+                DVec2::new(c, -s)
+            };
 
             // Fill in all the derivatives.
             let diff = Params {
                 curves: [dta, dtb],
                 opposing_normal: dtf,
-                flats: [[DVec2::ZERO; 2]; 3],
-                flat_orientation: [[0.0; 2]; 3],
+                flats: {
+                    let [of, ofa, ofb] = params.flat_orientation;
+
+                    [
+                        [orientation(of[0]) * speed1, orientation(of[1]) * speed2],
+                        [orientation(ofa[0]) * speed0, orientation(ofa[1]) * speed1],
+                        [orientation(ofb[0]) * speed2, orientation(ofb[1]) * speed0],
+                    ]
+                },
+                flat_orientation: [
+                    [raw_curve_at1f * speed_cor1, raw_curve_at2f * speed_cor2],
+                    [raw_curve_at0fa * speed_cor0, raw_curve_at1fa * speed_cor1],
+                    [raw_curve_at2fb * speed_cor2, raw_curve_at0fb * speed_cor0],
+                ],
             };
 
             (diff.put(), true)
@@ -509,8 +551,15 @@ pub fn triangle_pipe_ode(
             *normal = self.opposing_normal.to_array();
 
             let (flats, coeffs) = coeffs.split_first_chunk_mut::<12>().unwrap();
+            let put_flats = |slice: &mut [f64], [vecl, vecr]: [DVec2; 2]| {
+                *slice.as_chunks_mut::<2>().0.as_mut_array().unwrap() =
+                    [vecl.to_array(), vecr.to_array()];
+            };
+
             let [y, a, b] = flats.as_chunks_mut::<4>().0.as_mut_array().unwrap();
-            let _ = (y, a, b);
+            put_flats(y, self.flats[0]);
+            put_flats(a, self.flats[1]);
+            put_flats(b, self.flats[2]);
 
             let (orients, _) = coeffs.split_first_chunk_mut::<6>().unwrap();
             *orients.as_chunks_mut::<2>().0.as_mut_array().unwrap() = self.flat_orientation;
@@ -594,6 +643,8 @@ pub fn triangle_pipe_ode(
             },
             base_left: params.flats[1][0],
             base_right: params.flats[1][1],
+            orientation_left: params.flat_orientation[1][0],
+            orientation_right: params.flat_orientation[1][1],
             ..UNFINISHED
         },
         flat2: PipeFaceSegment {
@@ -606,6 +657,8 @@ pub fn triangle_pipe_ode(
             },
             base_left: params.flats[2][0],
             base_right: params.flats[2][1],
+            orientation_left: params.flat_orientation[2][0],
+            orientation_right: params.flat_orientation[2][1],
             ..UNFINISHED
         },
         opposing_flat: PipeFaceSegment {
@@ -614,6 +667,8 @@ pub fn triangle_pipe_ode(
             },
             base_left: params.flats[0][0],
             base_right: params.flats[0][1],
+            orientation_left: params.flat_orientation[0][0],
+            orientation_right: params.flat_orientation[0][1],
             ..UNFINISHED
         },
         pipe,

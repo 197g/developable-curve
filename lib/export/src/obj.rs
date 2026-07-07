@@ -33,8 +33,9 @@ trait WriteObj {
     fn append_quad(&mut self, idx: [usize; 4], normals: [usize; 4]) -> Result<(), Self::Err>;
 }
 
-trait MkNever {
+pub(crate) trait MkNever {
     type Output;
+
 }
 
 impl<R> MkNever for fn() -> R {

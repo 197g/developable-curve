@@ -1,5 +1,5 @@
-use dc_integral::CurveSegment;
-use glam::{DVec3, Vec3};
+use dc_integral::{CurveSegment, PipeFaceBase, TrianglePipeBase};
+use glam::{DVec2, DVec3, Vec3};
 
 mod affine;
 mod spiral;
@@ -7,8 +7,8 @@ mod spline;
 
 pub use affine::{Affine, Translate};
 pub use dc_theory::*;
-pub use spline::BezierSpline;
 pub use spiral::Spiral;
+pub use spline::BezierSpline;
 
 pub trait Curve {
     fn at(&self, t: f32) -> DenormalTangentFrame;
@@ -18,13 +18,91 @@ pub trait Curve {
     }
 }
 
+impl dyn Curve {
+    pub fn as_pipe(&self, base1: DVec3, opposing: SurfaceNormal, base2: DVec3) -> TrianglePipeBase {
+        fn flat_around(dleft: DVec3, orthogonal_frame: [DVec3; 2], dright: DVec3) -> PipeFaceBase {
+            // Defines the right and forward direction, *not* orthonormal.
+            let [right, forward] = orthogonal_frame;
+
+            // Establish the angles via atan2.
+            let x = right.normalize_or_zero();
+            let y = forward.normalize_or_zero();
+
+            let angle = |vec: DVec3| {
+                let vec = vec.normalize_or_zero();
+                let cos = vec.dot(x);
+                let sin = vec.dot(y);
+                sin.atan2(cos)
+            };
+
+            PipeFaceBase {
+                base_left: DVec2::ZERO,
+                base_right: DVec2::new(0.0, -right.length()),
+                orientation_left: angle(dleft),
+                orientation_right: angle(dright),
+            }
+        }
+
+        fn flats_from_inner_normals(base: [DVec3; 3], opposing: [DVec3; 3]) -> [PipeFaceBase; 3] {
+            let forwards = [
+                opposing[2].cross(opposing[1]),
+                opposing[0].cross(opposing[2]),
+                opposing[1].cross(opposing[0]),
+            ];
+
+            let opposing_base = {
+                let rights = [base[1] - base[0], base[2] - base[1], base[0] - base[2]];
+
+                let forwards = [
+                    rights[0].cross(opposing[0]),
+                    rights[1].cross(opposing[1]),
+                    rights[2].cross(opposing[2]),
+                ];
+
+                [
+                    [rights[0], forwards[0]],
+                    [rights[1], forwards[1]],
+                    [rights[2], forwards[2]],
+                ]
+            };
+
+            [
+                flat_around(forwards[0], opposing_base[2], forwards[1]),
+                flat_around(forwards[1], opposing_base[0], forwards[2]),
+                flat_around(forwards[2], opposing_base[1], forwards[0]),
+            ]
+        }
+
+        let frame = self.at(0.0);
+        let normalb = frame.tangent.cross(base2 - frame.base);
+        let normala = frame.tangent.cross(frame.base - base1);
+
+        let [flat1, opposing_flat, flat2] = flats_from_inner_normals(
+            [frame.base, base1, base2],
+            [opposing.axis, normalb, normala],
+        );
+
+        TrianglePipeBase {
+            base1,
+            base2,
+            opposing_normal: opposing.axis,
+            flat1,
+            flat2,
+            opposing_flat,
+        }
+    }
+}
+
 impl<T: Curve + ?Sized> Curve for &'_ T {
     fn at(&self, t: f32) -> DenormalTangentFrame {
         (**self).at(t)
     }
 }
 
-pub fn normal_ode(curve: impl Curve, parameter: impl Fn(f32) -> f32) -> impl Fn(DVec3, f64) -> DVec3 {
+pub fn normal_ode(
+    curve: impl Curve,
+    parameter: impl Fn(f32) -> f32,
+) -> impl Fn(DVec3, f64) -> DVec3 {
     move |normal: DVec3, t: f64| {
         let frame = curve.at(t as f32);
         let dev = SurfaceDevelopment::from_frame_and_normal(frame, SurfaceNormal { axis: normal });
@@ -38,8 +116,10 @@ pub fn normal_and_flat_ode(
     parameter: impl Fn(f32) -> f32,
 ) -> impl Fn(DVec3, f64) -> CurveDescription {
     move |normal: DVec3, t: f64| {
-        let dev =
-            SurfaceDevelopment::from_frame_and_normal(curve.at(t as f32), SurfaceNormal { axis: normal });
+        let dev = SurfaceDevelopment::from_frame_and_normal(
+            curve.at(t as f32),
+            SurfaceNormal { axis: normal },
+        );
         let lambda = f64::from(parameter(t as f32));
         let dt_normal = dev.derivative_base + lambda * dev.derivative_free;
 
