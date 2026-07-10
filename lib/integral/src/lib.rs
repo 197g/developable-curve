@@ -367,23 +367,23 @@ pub fn triangle_pipe_ode(
 
             let [a, b] = params.curves;
 
+            // We usually expect this to be constant length `1` but it may not be over the ODE.
+            let normalf = params.opposing_normal.normalize_or_zero();
             // The planes are spanned by the boundary curve tangent and the ruling direction.
-            let normalb = tangent.cross(b - y);
-            let normala = tangent.cross(y - a);
+            let normalb = tangent.cross(b - y).normalize_or_zero();
+            let normala = tangent.cross(y - a).normalize_or_zero();
 
             // From the basic theorem, the derivative of the surface normal is orthogonal to the
             // ruling direction within the surface plane. This does not inform us of its length,
             // which is instead constrained with the second derivative of each boundary curve.
-            let dir_dtf = (b - a).cross(params.opposing_normal).normalize_or_zero();
+            let dir_dtf = (b - a).cross(normalf).normalize_or_zero();
             // These two normalize on their own with the coefficient below.
-            //
-            // FIXME: should use normalize_or_zero'd normala instead, see below.
             let dir_dtfa = (a - y).cross(normala);
             let dir_dtfb = (b - y).cross(normalb);
 
             // The directions are in the plane of both its surfaces.
-            let dir_a = params.opposing_normal.cross(normala).normalize_or_zero();
-            let dir_b = normalb.cross(params.opposing_normal).normalize_or_zero();
+            let dir_a = normalf.cross(normala).normalize_or_zero();
+            let dir_b = normalb.cross(normalf).normalize_or_zero();
 
             let dtf = dir_dtf * curve.yaw;
             let dta = dir_a * curve.len_a;
@@ -416,6 +416,8 @@ pub fn triangle_pipe_ode(
             let coeff_dtfa = -derivative.dot(normala) / dir_dtfa.dot(tangent);
             let coeff_dtfb = -derivative.dot(normalb) / dir_dtfb.dot(tangent);
 
+            // We are explicitly calculating the derivatives of these normals only so we can
+            // calculate the second derivative coefficients below for curvature.
             let dtfa = dir_dtfa * coeff_dtfa;
             let dtfb = dir_dtfb * coeff_dtfb;
 
@@ -444,35 +446,52 @@ pub fn triangle_pipe_ode(
             let dtfa_dta = dtfa.dot(dta);
             let dtfb_dtb = dtfb.dot(dtb);
 
-            // With both coefficients <dt² A, {F,Fa}> we can calculate the cross product
-            // dt A×dt² A; as we have dt A = c0 · F×Fa it is quite simple:
+            // The curvature relative to surface normal is a triple product:
+            //
+            //     <F×dt A, dt² A>
+            // 
+            // We can arrange that however we want. Most reasonable is dt A×dt² A since this is
+            // simply to calculate, we'll see we do not need dt² A explicitly as dt A is itself
+            // formed from a dot product and we have the right coefficients.
+            //
+            // We have, for some c0, that `dt A = c0 · F×Fa` and from `<F, dt A> = 0` we have:
             //
             // (F×Fa)×dt²A
-            // = F·<Fa, dt²A>-Fa·<F, dt²A>
-            // = Fa·<dtF, dtA>-F·<dtFa, dtA>
+            // = Fa·<F, dt²A> - F·<Fa, dt²A>
+            // = F·<dt Fa, dtA> - Fa·<dt F, dtA>
             //
             // With c0
             //   = curve.len_a / ||F×Fa||
-            // (implying ||dt A|| = |curve.len_a|)
+            // (from ||dt A|| = |curve.len_a|)
             // (note ||F×Fa|| = sqrt(1 - dot(F, Fa)²), both are unit-length normals)
             //
-            // Anyways we want the dot-product of this with both normals. For any `l` (but
-            // especially for `c0`):
+            // Anyways we want the dot-product of this with both normals for the triple product. For
+            // any scalar f (but especially for `c0`):
             //
-            // <Fa, l·(F×Fa)×dt²A> = l·(<dtF,dtA> - <Fa,F>·<dtFa,dtA>)
-            // <F, l·(F×Fa)×dt²A> = l·(<Fa,F>·<dtF,dtA> - <dtFa,dtA>)
-            let faf = normala.dot(params.opposing_normal);
-            let fbf = normalb.dot(params.opposing_normal);
+            // <Fa, f·(F×Fa)×dt²A> = f·(<Fa,F>·<dtFa,dtA>- <dtF,dtA>)
+            // <F, f·(F×Fa)×dt²A> = f·(<dtFa,dtA> - <Fa,F>·<dtF,dtA>)
 
-            // FIXME: see above for simplified formula? Verify though.
-            let c0a = curve.len_a / params.opposing_normal.cross(normala).length();
-            let c0b = curve.len_b / params.opposing_normal.cross(normalb).length();
+            // Calculate the dot product coefficient we have not done yet.
+            let faf = normala.dot(normalf);
+            let fbf = normalb.dot(normalf);
 
-            let raw_curve_at1fa = c0a * (dtf_dta - faf * dtfa_dta);
-            let raw_curve_at1f = c0a * (faf * dtf_dta - dtfa_dta);
-            let raw_curve_at2f = c0b * (fbf * dtf_dtb - dtfb_dtb);
-            let raw_curve_at2fb = c0b * (dtf_dtb - fbf * dtfb_dtb);
+            assert!((normalf.length() - 1.0).abs() < 1e-6);
+            assert!((normala.length() - 1.0).abs() < 1e-6);
+            assert!((normalb.length() - 1.0).abs() < 1e-6);
+            assert!((normalf.dot(dtf)).abs() < 1e-6);
 
+            // FIXME: see above for simplified formula? Verify though. The repetitive use `normal?`
+            // is suspicious that there is a lot more simplification possible. Also there must be a
+            // contraction with the scalars `len_a`?
+            let c0a = curve.len_a / normalf.cross(normala).length();
+            let c0b = curve.len_b / normalf.cross(normalb).length();
+
+            let raw_curve_at1fa = c0a * (faf * dtfa_dta - dtf_dta);
+            let raw_curve_at1f = c0a * (dtfa_dta - faf * dtf_dta);
+            let raw_curve_at2f = c0b * (dtfb_dtb - fbf * dtf_dtb);
+            let raw_curve_at2fb = c0b * (fbf * dtfb_dtb - dtf_dtb);
+
+            // For the base curve we calculate the dot product from the explicit second derivative.
             let base_curve = tangent.cross(derivative);
             let raw_curve_at0fa = normala.dot(base_curve);
             let raw_curve_at0fb = normalb.dot(base_curve);

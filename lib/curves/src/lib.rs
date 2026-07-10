@@ -25,13 +25,13 @@ impl dyn Curve {
             let [right, forward] = orthogonal_frame;
 
             // Establish the angles via atan2.
-            let x = right.normalize_or_zero();
-            let y = forward.normalize_or_zero();
+            let x = forward.normalize_or_zero();
+            let negy = right.normalize_or_zero();
 
             let angle = |vec: DVec3| {
                 let vec = vec.normalize_or_zero();
                 let cos = vec.dot(x);
-                let sin = vec.dot(y);
+                let sin = vec.dot(-negy);
                 sin.atan2(cos)
             };
 
@@ -51,12 +51,12 @@ impl dyn Curve {
             ];
 
             let opposing_base = {
-                let rights = [base[1] - base[0], base[2] - base[1], base[0] - base[2]];
+                let rights = [base[2] - base[1], base[0] - base[2], base[1] - base[0]];
 
                 let forwards = [
-                    rights[0].cross(opposing[0]),
-                    rights[1].cross(opposing[1]),
-                    rights[2].cross(opposing[2]),
+                    opposing[0].cross(rights[0]),
+                    opposing[1].cross(rights[1]),
+                    opposing[2].cross(rights[2]),
                 ];
 
                 [
@@ -67,9 +67,9 @@ impl dyn Curve {
             };
 
             [
-                flat_around(forwards[0], opposing_base[2], forwards[1]),
-                flat_around(forwards[1], opposing_base[0], forwards[2]),
-                flat_around(forwards[2], opposing_base[1], forwards[0]),
+                flat_around(forwards[0], opposing_base[0], forwards[1]),
+                flat_around(forwards[1], opposing_base[1], forwards[2]),
+                flat_around(forwards[2], opposing_base[2], forwards[0]),
             ]
         }
 

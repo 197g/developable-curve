@@ -118,13 +118,57 @@ pub fn to_svg(
 }
 
 pub fn pipe(
-    _: &[(DenormalTangentFrame, dc_integral::TrianglePipeBase)],
-    scale: f32,
-) -> Result<super::StrFileData, core::fmt::Error> {
-    Ok(super::StrFileData {
-        contents: "".to_string(),
-        scale,
-    })
+    curve: &[(DenormalTangentFrame, dc_integral::TrianglePipeBase)],
+    to_mm: f32,
+) -> Result<[super::StrFileData; 3], core::fmt::Error> {
+    let access: [fn(&dc_integral::TrianglePipeBase) -> dc_integral::PipeFaceBase; 3] = [
+        |segment| segment.opposing_flat,
+        |segment| segment.flat1,
+        |segment| segment.flat2,
+    ];
+
+    let mut output = [(); 3].map(|_| super::StrFileData {
+        contents: String::new(),
+        scale: to_mm,
+    });
+
+    for (access, output) in access.into_iter().zip(&mut output) {
+        let viewport = ViewportEmbedding::new(
+            to_mm,
+            curve.iter().flat_map(|(_, segment)| {
+                let face = access(segment);
+                [face.base_right, face.base_left]
+            }),
+        );
+
+        let scale = f64::from(viewport.scale);
+        let mut string = viewport.start_svg();
+
+        let eof = string.split_off(string.find('>').unwrap() + 2);
+
+        string.path(curve.iter().map(|(_, segment)| {
+            let [x, y] = access(segment).base_left.to_array();
+            [x * scale, -y * scale]
+        }));
+
+        string.path(curve.iter().map(|(_, segment)| {
+            let [x, y] = access(segment).base_right.to_array();
+            [x * scale, -y * scale]
+        }));
+
+        for (_, segment) in curve.iter() {
+            let face = access(segment);
+            let [lx, ly] = face.base_left.to_array();
+            let [rx, ry] = face.base_right.to_array();
+
+            string.path([[lx * scale, -ly * scale], [rx * scale, -ry * scale]]);
+        }
+
+        string.extend(eof.chars());
+        output.contents = string;
+    }
+
+    Ok(output)
 }
 
 struct ViewportEmbedding {

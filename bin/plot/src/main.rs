@@ -240,6 +240,8 @@ fn extrapolate_curve(
     Ok(Results {
         obj: obj.contents,
         svg: svg.contents,
+        svg_east: None,
+        svg_west: None,
     })
 }
 
@@ -248,25 +250,17 @@ fn extrapolate_pipe(
     pipe: PipeParameterization,
     obj: dc_export::obj::ObjConfig,
 ) -> Result<Results, Box<dyn std::error::Error>> {
-    const ZERO_FLAT: dc_integral::PipeFaceBase = dc_integral::PipeFaceBase {
-        base_left: glam::DVec2::ZERO,
-        base_right: glam::DVec2::ZERO,
-        orientation_left: 0.0,
-        orientation_right: 0.0,
-    };
-
     let Some((first, tail)) = splines.split_first() else {
         panic!("At least one segment is required to form a curve.")
     };
 
-    let mut start = dc_integral::TrianglePipeBase {
-        base1: Vec3::from_array(pipe.base.east).as_dvec3(),
-        base2: Vec3::from_array(pipe.base.west).as_dvec3(),
-        opposing_normal: Vec3::from_array(pipe.base.north_normal).as_dvec3(),
-        flat1: ZERO_FLAT,
-        flat2: ZERO_FLAT,
-        opposing_flat: ZERO_FLAT,
-    };
+    let mut start = first.as_pipe(
+        Vec3::from_array(pipe.base.east).as_dvec3(),
+        SurfaceNormal {
+            axis: Vec3::from_array(pipe.base.north_normal).as_dvec3(),
+        },
+        Vec3::from_array(pipe.base.west).as_dvec3(),
+    );
 
     let mut segments: Vec<(DenormalTangentFrame, dc_integral::TrianglePipeBase)> = vec![];
 
@@ -385,11 +379,13 @@ fn extrapolate_pipe(
     }
 
     let obj = obj.pipe(&segments)?;
-    let svg = svg::pipe(&segments, obj.scale)?;
+    let [svgo, svg1, svg2] = svg::pipe(&segments, obj.scale)?;
 
     Ok(Results {
         obj: obj.contents,
-        svg: svg.contents,
+        svg: svgo.contents,
+        svg_east: Some(svg1.contents),
+        svg_west: Some(svg2.contents),
     })
 }
 
@@ -418,6 +414,8 @@ impl IoResources {
 struct Results {
     obj: String,
     svg: String,
+    svg_east: Option<String>,
+    svg_west: Option<String>,
 }
 
 fn linear_interpolate(ival: (f32, f32), hval: (f32, f32)) -> impl Fn(f32) -> f32 {
