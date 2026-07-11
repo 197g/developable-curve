@@ -237,7 +237,7 @@ pub fn curve_ode_with_curvature(
 /// Start of a triangular pipe development.
 ///
 /// For a simplified constructor, see in `dc-curve`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct TrianglePipeBase {
     pub base1: DVec3,
     pub base2: DVec3,
@@ -248,7 +248,7 @@ pub struct TrianglePipeBase {
 }
 
 /// Start of a face of [`TrianglePipeBase`].
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub struct PipeFaceBase {
     pub base_left: DVec2,
     pub base_right: DVec2,
@@ -373,21 +373,23 @@ pub fn triangle_pipe_ode(
             let normalb = tangent.cross(b - y).normalize_or_zero();
             let normala = tangent.cross(y - a).normalize_or_zero();
 
-            // From the basic theorem, the derivative of the surface normal is orthogonal to the
-            // ruling direction within the surface plane. This does not inform us of its length,
-            // which is instead constrained with the second derivative of each boundary curve.
-            let dir_dtf = (b - a).cross(normalf).normalize_or_zero();
-            // These two normalize on their own with the coefficient below.
-            let dir_dtfa = (a - y).cross(normala);
-            let dir_dtfb = (b - y).cross(normalb);
-
             // The directions are in the plane of both its surfaces.
             let dir_a = normalf.cross(normala).normalize_or_zero();
             let dir_b = normalb.cross(normalf).normalize_or_zero();
 
-            let dtf = dir_dtf * curve.yaw;
             let dta = dir_a * curve.len_a;
             let dtb = dir_b * curve.len_b;
+
+            // From the basic theorem, the derivative of the surface normal is orthogonal to the
+            // ruling direction within the surface plane. This does not inform us of its length,
+            // which is instead constrained with the second derivative of each boundary curve.
+            let dir_dtf = (b - a).cross(normalf).normalize_or_zero();
+
+            // These two normalize on their own with the coefficient below.
+            let dir_dtfa = (a - y).cross(normala);
+            let dir_dtfb = (b - y).cross(normalb);
+
+            let dtf = dir_dtf * curve.yaw;
 
             let dtf_dta = dtf.dot(dta);
             let dtf_dtb = dtf.dot(dtb);
@@ -449,7 +451,7 @@ pub fn triangle_pipe_ode(
             // The curvature relative to surface normal is a triple product:
             //
             //     <F×dt A, dt² A>
-            // 
+            //
             // We can arrange that however we want. Most reasonable is dt A×dt² A since this is
             // simply to calculate, we'll see we do not need dt² A explicitly as dt A is itself
             // formed from a dot product and we have the right coefficients.
@@ -484,7 +486,11 @@ pub fn triangle_pipe_ode(
             // is suspicious that there is a lot more simplification possible. Also there must be a
             // contraction with the scalars `len_a`?
             let c0a = curve.len_a / normalf.cross(normala).length();
-            let c0b = curve.len_b / normalf.cross(normalb).length();
+            // Note: negative factor since dt B is from Fb×F
+            let c0b = -curve.len_b / normalf.cross(normalb).length();
+
+            assert!((c0a * normalf.cross(normala) - dta).length() < 1e-6);
+            assert!((c0b * normalf.cross(normalb) - dtb).length() < 1e-6);
 
             let raw_curve_at1fa = c0a * (faf * dtfa_dta - dtf_dta);
             let raw_curve_at1f = c0a * (dtfa_dta - faf * dtf_dta);
@@ -496,18 +502,18 @@ pub fn triangle_pipe_ode(
             let raw_curve_at0fa = normala.dot(base_curve);
             let raw_curve_at0fb = normalb.dot(base_curve);
 
-            let speed0 = tangent.length();
-            let speed1 = curve.len_a;
-            let speed2 = curve.len_b;
+            let speedy = tangent.length();
+            let speeda = curve.len_a;
+            let speedb = curve.len_b;
 
-            let speed_cor0 = 1.0 / tangent.length_squared();
-            let speed_cor1 = 1.0 / curve.len_a.powi(2);
-            let speed_cor2 = 1.0 / curve.len_b.powi(2);
+            let speed_cory = 1.0 / tangent.length_squared();
+            let speed_cora = 1.0 / curve.len_a.powi(2);
+            let speed_corb = 1.0 / curve.len_b.powi(2);
 
             // 0.0 points towards +X.
             let orientation = |x: f64| {
                 let (s, c) = x.sin_cos();
-                DVec2::new(c, -s)
+                DVec2::new(c, s)
             };
 
             // Fill in all the derivatives.
@@ -518,15 +524,15 @@ pub fn triangle_pipe_ode(
                     let [of, ofa, ofb] = params.flat_orientation;
 
                     [
-                        [orientation(of[0]) * speed1, orientation(of[1]) * speed2],
-                        [orientation(ofa[0]) * speed0, orientation(ofa[1]) * speed1],
-                        [orientation(ofb[0]) * speed2, orientation(ofb[1]) * speed0],
+                        [orientation(of[0]) * speeda, orientation(of[1]) * speedb],
+                        [orientation(ofa[0]) * speedy, orientation(ofa[1]) * speeda],
+                        [orientation(ofb[0]) * speedb, orientation(ofb[1]) * speedy],
                     ]
                 },
                 flat_orientation: [
-                    [raw_curve_at1f * speed_cor1, raw_curve_at2f * speed_cor2],
-                    [raw_curve_at0fa * speed_cor0, raw_curve_at1fa * speed_cor1],
-                    [raw_curve_at2fb * speed_cor2, raw_curve_at0fb * speed_cor0],
+                    [raw_curve_at1f * speed_cora, raw_curve_at2f * speed_corb],
+                    [raw_curve_at0fa * speed_cory, raw_curve_at1fa * speed_cora],
+                    [raw_curve_at2fb * speed_corb, raw_curve_at0fb * speed_cory],
                 ],
             };
 

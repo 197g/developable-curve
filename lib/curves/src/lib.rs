@@ -68,8 +68,8 @@ impl dyn Curve {
 
             [
                 flat_around(forwards[0], opposing_base[0], forwards[1]),
-                flat_around(forwards[1], opposing_base[1], forwards[2]),
-                flat_around(forwards[2], opposing_base[2], forwards[0]),
+                flat_around(forwards[1], opposing_base[2], forwards[2]),
+                flat_around(forwards[2], opposing_base[1], forwards[0]),
             ]
         }
 
@@ -77,7 +77,7 @@ impl dyn Curve {
         let normalb = frame.tangent.cross(base2 - frame.base);
         let normala = frame.tangent.cross(frame.base - base1);
 
-        let [flat1, opposing_flat, flat2] = flats_from_inner_normals(
+        let [opposing_flat, flat1, flat2] = flats_from_inner_normals(
             [frame.base, base1, base2],
             [opposing.axis, normalb, normala],
         );
