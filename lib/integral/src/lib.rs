@@ -391,9 +391,6 @@ pub fn triangle_pipe_ode(
 
             let dtf = dir_dtf * curve.yaw;
 
-            let dtf_dta = dtf.dot(dta);
-            let dtf_dtb = dtf.dot(dtb);
-
             // Recall <dt F, dt Y> = -<dt² Y, F>
             //
             // FIXME: make this work even when the direction is orthogonal? This does not really
@@ -445,8 +442,11 @@ pub fn triangle_pipe_ode(
             // = la·<a-y,F - derivative×tangent>
             //
             // Is that cleaner?
-            let dtfa_dta = dtfa.dot(dta);
-            let dtfb_dtb = dtfb.dot(dtb);
+            //
+            // As it turns out we really want the dot product with `unit(dt A)` instead, i.e.
+            // depending on how we defined it by the cross product.
+            let dtfa_dira = dtfa.dot(dir_a);
+            let dtfb_dirb = dtfb.dot(dir_b);
 
             // The curvature relative to surface normal is a triple product:
             //
@@ -472,6 +472,21 @@ pub fn triangle_pipe_ode(
             //
             // <Fa, f·(F×Fa)×dt²A> = f·(<Fa,F>·<dtFa,dtA>- <dtF,dtA>)
             // <F, f·(F×Fa)×dt²A> = f·(<dtFa,dtA> - <Fa,F>·<dtF,dtA>)
+            //
+            // Now, we only want the curvature or rather its dt/ds (where ds is the _implied_
+            // unit-speed parameterization) adjusted term. These are related to the triple product
+            // above by noting that `dt A` is `||dt A||·dA/ds` and `dt² A = ||dt A||²·dA/ds + …` so
+            // we'd have to divide by `||dt A||³` here. Then we multiply again with one though. That
+            // is, we really want `f* = c0/||dt A||²` here. But `|curve.len_a| = ||dt A||` by
+            // definition and so:
+            //
+            // <F, f*·(F×Fa)×dt²A>
+            //     = f*·(<dtFa,dtA> - <Fa,F>·<dtF,dtA>)
+            //     = curve.len_a/||F×Fa||/||dt A||²·(<dtFa,dtA> - <Fa,F>·<dtF,dtA>)
+            //     = curve.len_a/||F×Fa||/||dt A||²·curve.len_a·(<dtFa,dir a> - <Fa,F>·<dtF,dir a>)
+            //     = curve.len_a²/||dt A||²/||F×Fa||·(<dtFa,dir a> - <Fa,F>·<dtF,dir a>)
+            //     = (<dtFa,dir a> - <Fa,F>·<dtF,dir a>)/||F×Fa||
+            //
 
             // Calculate the dot product coefficient we have not done yet.
             let faf = normala.dot(normalf);
@@ -482,20 +497,19 @@ pub fn triangle_pipe_ode(
             assert!((normalb.length() - 1.0).abs() < 1e-6);
             assert!((normalf.dot(dtf)).abs() < 1e-6);
 
-            // FIXME: see above for simplified formula? Verify though. The repetitive use `normal?`
-            // is suspicious that there is a lot more simplification possible. Also there must be a
-            // contraction with the scalars `len_a`?
-            let c0a = curve.len_a / normalf.cross(normala).length();
+            // Canceled from `curve.len_a / ||F×Fa|| / ||dt A||²` by adjusting the products.
+            let f0a = 1.0 / (1.0 - faf * faf).sqrt();
             // Note: negative factor since dt B is from Fb×F
-            let c0b = -curve.len_b / normalf.cross(normalb).length();
+            let f0b = -1.0 / (1.0 - fbf * fbf).sqrt();
 
-            assert!((c0a * normalf.cross(normala) - dta).length() < 1e-6);
-            assert!((c0b * normalf.cross(normalb) - dtb).length() < 1e-6);
+            // Second component of these
+            let dtf_dira = dtf.dot(dir_a);
+            let dtf_dirb = dtf.dot(dir_b);
 
-            let raw_curve_at1fa = c0a * (faf * dtfa_dta - dtf_dta);
-            let raw_curve_at1f = c0a * (dtfa_dta - faf * dtf_dta);
-            let raw_curve_at2f = c0b * (dtfb_dtb - fbf * dtf_dtb);
-            let raw_curve_at2fb = c0b * (fbf * dtfb_dtb - dtf_dtb);
+            let raw_curve_at1fa = f0a * (faf * dtfa_dira - dtf_dira);
+            let raw_curve_at1f = f0a * (dtfa_dira - faf * dtf_dira);
+            let raw_curve_at2f = f0b * (dtfb_dirb - fbf * dtf_dirb);
+            let raw_curve_at2fb = f0b * (fbf * dtfb_dirb - dtf_dirb);
 
             // For the base curve we calculate the dot product from the explicit second derivative.
             let base_curve = tangent.cross(derivative);
@@ -507,8 +521,6 @@ pub fn triangle_pipe_ode(
             let speedb = curve.len_b;
 
             let speed_cory = 1.0 / tangent.length_squared();
-            let speed_cora = 1.0 / curve.len_a.powi(2);
-            let speed_corb = 1.0 / curve.len_b.powi(2);
 
             // 0.0 points towards +X.
             let orientation = |x: f64| {
@@ -530,9 +542,9 @@ pub fn triangle_pipe_ode(
                     ]
                 },
                 flat_orientation: [
-                    [raw_curve_at1f * speed_cora, raw_curve_at2f * speed_corb],
-                    [raw_curve_at0fa * speed_cory, raw_curve_at1fa * speed_cora],
-                    [raw_curve_at2fb * speed_corb, raw_curve_at0fb * speed_cory],
+                    [raw_curve_at1f, raw_curve_at2f],
+                    [raw_curve_at0fa * speed_cory, raw_curve_at1fa],
+                    [raw_curve_at2fb, raw_curve_at0fb * speed_cory],
                 ],
             };
 
