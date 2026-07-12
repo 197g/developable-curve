@@ -373,12 +373,20 @@ pub fn triangle_pipe_ode(
             let normalb = tangent.cross(b - y).normalize_or_zero();
             let normala = tangent.cross(y - a).normalize_or_zero();
 
-            // The directions are in the plane of both its surfaces.
-            let dir_a = normalf.cross(normala).normalize_or_zero();
-            let dir_b = normalb.cross(normalf).normalize_or_zero();
+            // Dot product used as a coefficient and for calculating ||F×Fa||.
+            let faf = normala.dot(normalf);
+            let fbf = normalb.dot(normalf);
 
-            let dta = dir_a * curve.len_a;
-            let dtb = dir_b * curve.len_b;
+            // Turns out we need 1.0 / ||F×Fa|| twice and calculate this from the dot product. We
+            // accept the pole as it will lead to disaster in another part of the formulate, too.
+            // For now until we figure out how to remove it entirely.
+            let normalize_faf = 1.0 / (1.0 - faf * faf).sqrt();
+            let normalize_fbf = 1.0 / (1.0 - fbf * fbf).sqrt();
+
+            // The directions are in the plane of both its surfaces. Normalization through
+            // independent calculation of the lengths
+            let dir_a = normalf.cross(normala) * normalize_faf;
+            let dir_b = normalb.cross(normalf) * normalize_fbf;
 
             // From the basic theorem, the derivative of the surface normal is orthogonal to the
             // ruling direction within the surface plane. This does not inform us of its length,
@@ -400,25 +408,20 @@ pub fn triangle_pipe_ode(
             // around the operations to find common components. Also dir_dtfa is defined by the
             // tangent in the dot product..
             //
-            // -<derivative,normala> / triple(tangent, a - y, tangent×(y-a))
-            // = -<derivative,normala> / <tangent×(y-a),tangent×(a-y)>
-            // = <derivative,normala>/<normala,normala>
+            // -<derivative,normala> / triple(tangent, a - y, unit(tangent×(y-a)))
+            // = -<derivative,normala> / <unit(tangent×(a-y)), tangent×(y-a)>
+            // = <derivative,normala>/ ||tangent×(y-a)||
             //
-            // Then this is multiplied onto dir_dtfa
-            //
-            //     (a - y)×normala·<derivative,normala>/<normala,normala>
-            //     =(a - y)×(normala/||normala||)·<derivative,normala/||normala||>
+            // Then this is multiplied onto dir_dtfa..
             //
             // And now if we replace normala with its normalize_or_zero variant the problem
             // disappears? But we do not need the value itself, only for a dot-product, so shorten
             // further before.
+
+            // These coefficients express the relationship of `dir_dtfa` to `dt Fa`. We have no need
+            // for explicit `dt Fa` so we keep the coefficient only for a dot product.
             let coeff_dtfa = -derivative.dot(normala) / dir_dtfa.dot(tangent);
             let coeff_dtfb = -derivative.dot(normalb) / dir_dtfb.dot(tangent);
-
-            // We are explicitly calculating the derivatives of these normals only so we can
-            // calculate the second derivative coefficients below for curvature.
-            let dtfa = dir_dtfa * coeff_dtfa;
-            let dtfb = dir_dtfb * coeff_dtfb;
 
             // What we are after is of course <dt Fa, dt A> and <dt Fb, dt B> only.
             //
@@ -445,8 +448,8 @@ pub fn triangle_pipe_ode(
             //
             // As it turns out we really want the dot product with `unit(dt A)` instead, i.e.
             // depending on how we defined it by the cross product.
-            let dtfa_dira = dtfa.dot(dir_a);
-            let dtfb_dirb = dtfb.dot(dir_b);
+            let dtfa_dira = dir_dtfa.dot(dir_a) * coeff_dtfa;
+            let dtfb_dirb = dir_dtfb.dot(dir_b) * coeff_dtfb;
 
             // The curvature relative to surface normal is a triple product:
             //
@@ -487,10 +490,17 @@ pub fn triangle_pipe_ode(
             //     = curve.len_a²/||dt A||²/||F×Fa||·(<dtFa,dir a> - <Fa,F>·<dtF,dir a>)
             //     = (<dtFa,dir a> - <Fa,F>·<dtF,dir a>)/||F×Fa||
             //
-
-            // Calculate the dot product coefficient we have not done yet.
-            let faf = normala.dot(normalf);
-            let fbf = normalb.dot(normalf);
+            // This implies the curvature does not depend on curve.len_a (as intuition expects).
+            // However, of course the derivative influences the directions of `Fa` so in an ODE
+            // sense there still is an influence—just not on the linearization at this timestep.
+            //
+            // NOTE: interestingly `dir_a` already is `F×Fa/||F×Fa||` which contracts into the `f0a`
+            // factor as `||F×Fa||² = 1.0 - <F, Fa>²`. And of course we again have another set of
+            // rather symmetrical triple products `<dtFa,F×Fa>` and `<dtF,F×Fa>` where of course
+            // each derivative of a normal is itself another rescaled cross product. However, I
+            // don't readily see this simplifying our calculation. We need the by-product of `dt A`
+            // itself and this adds more summation terms. Unless it cancels with `f0a` this seems
+            // not worth it.
 
             assert!((normalf.length() - 1.0).abs() < 1e-6);
             assert!((normala.length() - 1.0).abs() < 1e-6);
@@ -498,11 +508,13 @@ pub fn triangle_pipe_ode(
             assert!((normalf.dot(dtf)).abs() < 1e-6);
 
             // Canceled from `curve.len_a / ||F×Fa|| / ||dt A||²` by adjusting the products.
-            let f0a = 1.0 / (1.0 - faf * faf).sqrt();
-            // Note: negative factor since dt B is from Fb×F
-            let f0b = -1.0 / (1.0 - fbf * fbf).sqrt();
+            let f0a = normalize_faf;
+            // Note: negative factor since dt B is from Fb×F instead. This is the simpler adjustment
+            // to the formula above, keeping `raw_curve_at2…` symmetrical with the case of `dt A`.
+            let f0b = -normalize_fbf;
 
-            // Second component of these
+            // Second component for the curvature calculation. This implies that the yaw _does_
+            // relate to the curvatures but we can only steer them highly coupled.
             let dtf_dira = dtf.dot(dir_a);
             let dtf_dirb = dtf.dot(dir_b);
 
@@ -530,7 +542,14 @@ pub fn triangle_pipe_ode(
 
             // Fill in all the derivatives.
             let diff = Params {
-                curves: [dta, dtb],
+                curves: {
+                    // Clarify this explicit notation is not required anywhere else. This should
+                    // simplify the development of a better parameterization by letting it transfer
+                    // to this one under the hood just with better control.
+                    let dta = dir_a * curve.len_a;
+                    let dtb = dir_b * curve.len_b;
+                    [dta, dtb]
+                },
                 opposing_normal: dtf,
                 flats: {
                     let [of, ofa, ofb] = params.flat_orientation;
