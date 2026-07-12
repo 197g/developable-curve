@@ -19,7 +19,7 @@ impl Default for ObjConfig {
             tangent_scale: Some(1.0),
             normal_scale: 1.0,
             normalize_ruling: false,
-            buildplate_mm: 180.,
+            buildplate_mm: 100.,
             comment: None,
         }
     }

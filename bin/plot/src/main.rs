@@ -379,7 +379,14 @@ fn extrapolate_pipe(
     }
 
     let obj = obj.pipe(&segments)?;
-    let [svgo, svg1, svg2] = svg::pipe(&segments, obj.scale)?;
+
+    let svg = svg::SvgConfig {
+        to_mm: obj.scale,
+        disable_cross_bars: true,
+        mount_holes_mm: Some(0.6),
+    };
+
+    let [svgo, svg1, svg2] = svg.pipe(&segments)?;
 
     Ok(Results {
         obj: obj.contents,
