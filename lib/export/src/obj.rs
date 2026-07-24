@@ -13,6 +13,11 @@ pub struct ObjConfig {
     pub comment: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ObjPipeConfig {
+    pub cross_section_faces: bool,
+}
+
 impl Default for ObjConfig {
     fn default() -> Self {
         Self {
@@ -35,7 +40,6 @@ trait WriteObj {
 
 pub(crate) trait MkNever {
     type Output;
-
 }
 
 impl<R> MkNever for fn() -> R {
@@ -196,6 +200,7 @@ impl ObjConfig {
     pub fn pipe(
         &self,
         segments: &[(DenormalTangentFrame, dc_integral::TrianglePipeBase)],
+        cfg: ObjPipeConfig,
     ) -> Result<super::StrFileData, core::fmt::Error> {
         let mut string = String::new();
 
@@ -211,11 +216,7 @@ impl ObjConfig {
                 .flat_map(|(frame, pipe)| [frame.base, pipe.base1, pipe.base2]),
         );
 
-        let tangent_scale = f64::from(self.tangent_scale.unwrap_or(0.5));
-        let normal_scale = f64::from(self.normal_scale);
-
         // Print optimized: 180mm build plate.
-        let ruling_scale = 1.0f64;
         let model_scale = f64::from(self.buildplate_mm) / model_bounds;
 
         for (frame, segment) in segments {
@@ -240,6 +241,10 @@ impl ObjConfig {
         }
 
         for i in 0..segments.len() {
+            if !cfg.cross_section_faces && !(i == 0 || i + 1 == segments.len()) {
+                continue;
+            }
+
             let base = i * 3 + 1;
             let normal = i * 4 + 1;
 

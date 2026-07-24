@@ -2,7 +2,7 @@ use std::io::{self, Read as _, Write as _};
 
 use clap::Parser;
 use dc_curves::{DenormalTangentFrame, SurfaceNormal, normal_and_angle_ode, stitch};
-use dc_export::svg;
+use dc_export::{obj, svg};
 use dc_integral::{CurveSegment, curve_ode_with_curvature};
 use glam::Vec3;
 use miniserde::{Deserialize, Serialize};
@@ -389,7 +389,12 @@ fn extrapolate_pipe(
         start = iter;
     }
 
-    let obj = obj.pipe(&segments)?;
+    let obj = obj.pipe(
+        &segments,
+        obj::ObjPipeConfig {
+            cross_section_faces: false,
+        },
+    )?;
 
     let svg = svg::SvgConfig {
         to_mm: obj.scale,
@@ -452,7 +457,12 @@ fn extrapolate_cross_section(
         start = iter;
     }
 
-    let obj = obj.pipe(&segments)?;
+    let obj = obj.pipe(
+        &segments,
+        obj::ObjPipeConfig {
+            cross_section_faces: false,
+        },
+    )?;
 
     let svg = svg::SvgConfig {
         to_mm: obj.scale,
