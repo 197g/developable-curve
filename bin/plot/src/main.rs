@@ -24,14 +24,23 @@ struct Parameterization {
     hermite: Vec<HermiteNode>,
     nodes: Vec<Node>,
     normal: [f32; 3],
+    /// Develop a single surface along the base curve.
     parameter: Option<Vec<SurfaceParameter>>,
+    /// Develop a pipe along the base curve.
     pipe: Option<PipeParameterization>,
+    /// Develop a pipe with constant cross section.
+    cross_section: Option<CrossSectionParameterization>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 struct PipeParameterization {
     base: PipeBase,
     develop: Vec<PipeParameter>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CrossSectionParameterization {
+    base: PipeBase,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -121,6 +130,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         extrapolate_curve(splines, normal, params, obj)?
     } else if let Some(params) = input.pipe {
         extrapolate_pipe(splines, params, obj)?
+    } else if let Some(params) = input.cross_section {
+        extrapolate_cross_section(splines, params, obj)?
     } else {
         todo!("Proper error");
     };
@@ -353,9 +364,9 @@ fn extrapolate_pipe(
             };
 
             let next = dc_integral::triangle_pipe_ode(
-                |at: f64| {
-                    let frame = curve.at(at as f32);
-                    let params = hinterpolate(at as f32);
+                |pipe| {
+                    let frame = curve.at(pipe.at as f32);
+                    let params = hinterpolate(pipe.at as f32);
 
                     dc_integral::PipeDescription {
                         frame,
@@ -383,7 +394,7 @@ fn extrapolate_pipe(
     let svg = svg::SvgConfig {
         to_mm: obj.scale,
         disable_cross_bars: true,
-        mount_holes_mm: Some(0.6),
+        mount_holes_mm: Some(0.8),
     };
 
     let [svgo, svg1, svg2] = svg.pipe(&segments)?;
@@ -396,6 +407,68 @@ fn extrapolate_pipe(
     })
 }
 
+fn extrapolate_cross_section(
+    splines: Vec<Box<dyn dc_curves::Curve>>,
+    pipe: CrossSectionParameterization,
+    obj: dc_export::obj::ObjConfig,
+) -> Result<Results, Box<dyn std::error::Error>> {
+    let Some((first, tail)) = splines.split_first() else {
+        panic!("At least one segment is required to form a curve.")
+    };
+
+    let mut start = first.as_pipe(
+        Vec3::from_array(pipe.base.east).as_dvec3(),
+        SurfaceNormal {
+            axis: Vec3::from_array(pipe.base.north_normal).as_dvec3(),
+        },
+        Vec3::from_array(pipe.base.west).as_dvec3(),
+    );
+
+    let mut segments: Vec<(DenormalTangentFrame, dc_integral::TrianglePipeBase)> = vec![];
+
+    for (idx, curve) in [first].into_iter().chain(tail).enumerate() {
+        if idx == 0 {
+            segments.push((curve.at(0.0), start));
+        }
+
+        let mut iter = start;
+        let mut ival_start = 0.0;
+
+        for n in 1..=100 {
+            let loc = 0.010 * n as f32;
+
+            let next = dc_integral::cross_section_pipe_ode(
+                |at| curve.at(at as f32),
+                iter,
+                (f64::from(ival_start), f64::from(loc)),
+            );
+
+            segments.push((curve.at(loc), next.as_next()));
+
+            iter = next.as_next();
+            ival_start = loc;
+        }
+
+        start = iter;
+    }
+
+    let obj = obj.pipe(&segments)?;
+
+    let svg = svg::SvgConfig {
+        to_mm: obj.scale,
+        disable_cross_bars: true,
+        mount_holes_mm: Some(0.8),
+    };
+
+    let [svgo, svg1, svg2] = svg.pipe(&segments)?;
+
+    Ok(Results {
+        obj: obj.contents,
+        svg: svgo.contents,
+        svg_east: Some(svg1.contents),
+        svg_west: Some(svg2.contents),
+    })
+}
 struct IoResources {
     input: Box<dyn io::Read>,
     output: Box<dyn io::Write>,
